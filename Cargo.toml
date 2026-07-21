@@ -1,15 +1,15 @@
 [package]
-name = "encrypt-man"
+name = "encryptman"
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 description = "AES-256-GCM encryption for application settings with HKDF key derivation"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/suradet-ps/encrypt-man"
+repository = "https://github.com/suradet-ps/encryptman"
 keywords = ["encryption", "aes", "gcm", "settings", "secrets"]
 categories = ["cryptography", "config"]
 readme = "README.md"
-documentation = "https://docs.rs/encrypt-man"
+documentation = "https://docs.rs/encryptman"
 include = ["src/**", "README.md", "LICENSE*", "CHANGELOG.md"]
 
 [lints.rust]

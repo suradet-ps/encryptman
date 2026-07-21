@@ -1,4 +1,4 @@
-//! # encrypt-man
+//! # encryptman
 //!
 //! AES-256-GCM encryption for application settings with HKDF key derivation.
 //!
@@ -10,7 +10,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use encrypt_man::{encrypt, decrypt, generate_master_key};
+//! use encryptman::{encrypt, decrypt, generate_master_key};
 //!
 //! // Generate a master key (store this securely — e.g., OS keychain)
 //! let master_key = generate_master_key();
@@ -35,7 +35,7 @@
 //!    storage.
 //!
 //! ```text
-//! master_key → HKDF-SHA256("encrypt-man:{context}") → AES key
+//! master_key → HKDF-SHA256("encryptman:{context}") → AES key
 //! plaintext + random nonce → AES-256-GCM → ciphertext
 //! version || nonce || ciphertext → base64 → encoded string
 //! ```
@@ -68,7 +68,7 @@ use zeroize::Zeroize;
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
 const VERSION: u8 = 0x01;
-const DEFAULT_CONTEXT: &str = "encrypt-man-v1";
+const DEFAULT_CONTEXT: &str = "encryptman-v1";
 
 /// Ciphertext encoding variant.
 ///
@@ -89,7 +89,7 @@ impl Encoding {
     /// # Examples
     ///
     /// ```rust
-    /// use encrypt_man::Encoding;
+    /// use encryptman::Encoding;
     ///
     /// let encoded = Encoding::Standard.encode(b"hello");
     /// assert_eq!(encoded, "aGVsbG8=");
@@ -110,7 +110,7 @@ impl Encoding {
     /// # Examples
     ///
     /// ```rust
-    /// use encrypt_man::Encoding;
+    /// use encryptman::Encoding;
     ///
     /// let bytes = Encoding::Standard.decode("aGVsbG8=").unwrap();
     /// assert_eq!(bytes, b"hello");
@@ -176,7 +176,7 @@ pub enum CryptoError {
 /// # Examples
 ///
 /// ```rust
-/// use encrypt_man::MasterKey;
+/// use encryptman::MasterKey;
 ///
 /// let key = MasterKey::generate();
 /// // key is automatically zeroed when dropped
@@ -277,7 +277,7 @@ impl TryFrom<Vec<u8>> for MasterKey {
 /// # Examples
 ///
 /// ```rust
-/// use encrypt_man::{encrypt, decrypt, generate_master_key};
+/// use encryptman::{encrypt, decrypt, generate_master_key};
 ///
 /// let key = generate_master_key();
 /// let encrypted = encrypt(&key, "hello").unwrap();
@@ -322,7 +322,7 @@ pub fn decrypt(master_key: &MasterKey, encoded: &str) -> Result<String, CryptoEr
 /// # Examples
 ///
 /// ```rust
-/// use encrypt_man::{encrypt_with_context, decrypt_with_context, generate_master_key};
+/// use encryptman::{encrypt_with_context, decrypt_with_context, generate_master_key};
 ///
 /// let key = generate_master_key();
 /// let enc_db = encrypt_with_context(&key, "database-passwords", "secret").unwrap();
@@ -372,7 +372,7 @@ pub fn decrypt_with_context(
 /// # Examples
 ///
 /// ```rust
-/// use encrypt_man::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
+/// use encryptman::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
 ///
 /// let key = generate_master_key();
 /// let encrypted = encrypt_with_encoding(&key, "jwt", "token", Encoding::UrlSafeNoPad).unwrap();
@@ -503,7 +503,7 @@ pub fn generate_master_key() -> MasterKey {
 fn derive_key(master_key: &MasterKey, context: &str) -> Result<Key<Aes256Gcm>, CryptoError> {
     let hk = Hkdf::<Sha256>::new(None, master_key.as_bytes());
     let mut okm = [0u8; KEY_SIZE];
-    let info = format!("encrypt-man:{context}");
+    let info = format!("encryptman:{context}");
     hk.expand(info.as_bytes(), &mut okm)
         .map_err(|e| CryptoError::KeyDerivation(format!("{e}")))?;
     Ok(*Key::<Aes256Gcm>::from_slice(&okm))

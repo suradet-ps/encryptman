@@ -1,7 +1,7 @@
-# encrypt-man
+# encryptman
 
-[![Crates.io](https://img.shields.io/crates/v/encrypt-man.svg)](https://crates.io/crates/encrypt-man)
-[![Documentation](https://docs.rs/encrypt-man/badge.svg)](https://docs.rs/encrypt-man)
+[![Crates.io](https://img.shields.io/crates/v/encryptman.svg)](https://crates.io/crates/encryptman)
+[![Documentation](https://docs.rs/encryptman/badge.svg)](https://docs.rs/encryptman)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
 
 AES-256-GCM encryption for application settings with HKDF key derivation.
@@ -20,13 +20,13 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-encrypt-man = "0.1"
+encryptman = "0.1"
 ```
 
 ## Quick Start
 
 ```rust
-use encrypt_man::{encrypt, decrypt, generate_master_key};
+use encryptman::{encrypt, decrypt, generate_master_key};
 
 let master_key = generate_master_key();
 
@@ -41,7 +41,7 @@ assert_eq!(decrypted, "my_database_password");
 ### Basic encrypt/decrypt
 
 ```rust
-use encrypt_man::{encrypt, decrypt, MasterKey};
+use encryptman::{encrypt, decrypt, MasterKey};
 
 let key = MasterKey::generate();
 let ct = encrypt(&key, "secret")?;
@@ -51,7 +51,7 @@ let pt = decrypt(&key, &ct)?;
 ### Multiple contexts with one key
 
 ```rust
-use encrypt_man::{encrypt_with_context, decrypt_with_context, MasterKey};
+use encryptman::{encrypt_with_context, decrypt_with_context, MasterKey};
 
 let key = MasterKey::generate();
 
@@ -71,7 +71,7 @@ let db_pt = decrypt_with_context(&key, "database", &db_ct)?;
 ### URL-safe encoding (JWTs, cookies, URLs)
 
 ```rust
-use encrypt_man::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
+use encryptman::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
 
 let key = generate_master_key();
 
@@ -84,7 +84,7 @@ assert_eq!(decrypted, "token");
 ### Storing and restoring the master key
 
 ```rust
-use encrypt_man::MasterKey;
+use encryptman::MasterKey;
 
 // Generate a new key
 let key = MasterKey::generate();
