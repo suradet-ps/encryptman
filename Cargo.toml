@@ -1,5 +1,5 @@
 [package]
-name = "encrypted-settings"
+name = "encrypt-man"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -9,7 +9,7 @@ repository = "https://github.com/suradet-ps/encrypted-settings"
 keywords = ["encryption", "aes", "gcm", "settings", "secrets"]
 categories = ["cryptography", "config"]
 readme = "README.md"
-documentation = "https://docs.rs/encrypted-settings"
+documentation = "https://docs.rs/encrypt-man"
 
 [dependencies]
 aes-gcm = "0.10"

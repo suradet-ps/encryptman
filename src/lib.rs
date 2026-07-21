@@ -1,4 +1,4 @@
-//! # encrypted-settings
+//! # encrypt-man
 //!
 //! AES-256-GCM encryption for application settings with HKDF key derivation.
 //!
@@ -10,7 +10,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use encrypted_settings::{encrypt, decrypt, generate_master_key};
+//! use encrypt_man::{encrypt, decrypt, generate_master_key};
 //!
 //! // Generate a master key (store this securely — e.g., OS keychain)
 //! let master_key = generate_master_key();
@@ -50,7 +50,7 @@ use zeroize::Zeroize;
 
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
-const DEFAULT_CONTEXT: &str = "encrypted-settings-v1";
+const DEFAULT_CONTEXT: &str = "encrypt-man-v1";
 
 /// Errors that can occur during encryption or decryption.
 #[derive(Debug, Error)]
@@ -88,7 +88,7 @@ pub enum CryptoError {
 /// # Examples
 ///
 /// ```rust
-/// use encrypted_settings::MasterKey;
+/// use encrypt_man::MasterKey;
 ///
 /// let key = MasterKey::generate();
 /// // key is automatically zeroed when dropped
@@ -154,7 +154,7 @@ impl std::fmt::Debug for MasterKey {
 /// # Examples
 ///
 /// ```rust
-/// use encrypted_settings::{encrypt, decrypt, generate_master_key};
+/// use encrypt_man::{encrypt, decrypt, generate_master_key};
 ///
 /// let key = generate_master_key();
 /// let encrypted = encrypt(&key, "hello").unwrap();
@@ -198,7 +198,7 @@ pub fn decrypt(master_key: &MasterKey, encoded: &str) -> Result<String, CryptoEr
 /// # Examples
 ///
 /// ```rust
-/// use encrypted_settings::{encrypt_with_context, decrypt_with_context, generate_master_key};
+/// use encrypt_man::{encrypt_with_context, decrypt_with_context, generate_master_key};
 ///
 /// let key = generate_master_key();
 /// let enc_db = encrypt_with_context(&key, "database-passwords", "secret").unwrap();
@@ -277,7 +277,7 @@ pub fn generate_master_key() -> MasterKey {
 fn derive_key(master_key: &MasterKey, context: &str) -> Key<Aes256Gcm> {
     let hk = Hkdf::<Sha256>::new(Some(context.as_bytes()), master_key.as_bytes());
     let mut okm = [0u8; KEY_SIZE];
-    hk.expand(b"encrypted-settings", &mut okm)
+    hk.expand(b"encrypt-man", &mut okm)
         .expect("HKDF expand should not fail for a 32-byte output");
     *Key::<Aes256Gcm>::from_slice(&okm)
 }
