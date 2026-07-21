@@ -84,14 +84,38 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    fn encode(&self, data: &[u8]) -> String {
+    /// Encode raw bytes into a base64 string.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use encrypt_man::Encoding;
+    ///
+    /// let encoded = Encoding::Standard.encode(b"hello");
+    /// assert_eq!(encoded, "aGVsbG8=");
+    /// ```
+    pub fn encode(&self, data: &[u8]) -> String {
         match self {
             Encoding::Standard => base64::engine::general_purpose::STANDARD.encode(data),
             Encoding::UrlSafeNoPad => base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data),
         }
     }
 
-    fn decode(&self, data: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    /// Decode a base64 string into raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input is not valid base64 for this encoding.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use encrypt_man::Encoding;
+    ///
+    /// let bytes = Encoding::Standard.decode("aGVsbG8=").unwrap();
+    /// assert_eq!(bytes, b"hello");
+    /// ```
+    pub fn decode(&self, data: &str) -> Result<Vec<u8>, base64::DecodeError> {
         match self {
             Encoding::Standard => base64::engine::general_purpose::STANDARD.decode(data),
             Encoding::UrlSafeNoPad => base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data),
@@ -330,7 +354,58 @@ pub fn decrypt_with_context(
     context: &str,
     encoded: &str,
 ) -> Result<String, CryptoError> {
-    let packed = Encoding::Standard.decode(encoded)?;
+    decrypt_with_encoding(master_key, context, encoded, Encoding::Standard)
+}
+
+/// Encrypt a plaintext string with a custom context and encoding.
+///
+/// The context is used in HKDF key derivation (`info` parameter) to derive a
+/// unique AES key. The encoding determines the base64 character set used.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to encrypt with.
+/// * `context` - An application-specific context string for key derivation.
+/// * `plaintext` - The string to encrypt.
+/// * `encoding` - The base64 encoding to use.
+///
+/// # Examples
+///
+/// ```rust
+/// use encrypt_man::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
+///
+/// let key = generate_master_key();
+/// let encrypted = encrypt_with_encoding(&key, "jwt", "token", Encoding::UrlSafeNoPad).unwrap();
+/// let decrypted = decrypt_with_encoding(&key, "jwt", &encrypted, Encoding::UrlSafeNoPad).unwrap();
+/// assert_eq!(decrypted, "token");
+/// ```
+pub fn encrypt_with_encoding(
+    master_key: &MasterKey,
+    context: &str,
+    plaintext: &str,
+    encoding: Encoding,
+) -> Result<String, CryptoError> {
+    encrypt_bytes_with_context(master_key, context, plaintext.as_bytes())
+        .map(|bytes| encoding.encode(&bytes))
+}
+
+/// Decrypt a ciphertext string with a custom context and encoding.
+///
+/// The `context` and `encoding` must match those used during encryption.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to decrypt with.
+/// * `context` - The context string used during encryption.
+/// * `encoded` - The base64-encoded ciphertext to decrypt.
+/// * `encoding` - The base64 encoding to use.
+pub fn decrypt_with_encoding(
+    master_key: &MasterKey,
+    context: &str,
+    encoded: &str,
+    encoding: Encoding,
+) -> Result<String, CryptoError> {
+    let packed = encoding.decode(encoded)?;
     let plaintext = decrypt_bytes_with_context(master_key, context, &packed)?;
     Ok(String::from_utf8(plaintext)?)
 }
@@ -647,6 +722,49 @@ mod tests {
         assert!(
             !encoded.contains('='),
             "URL-safe no-pad encoding must not contain ="
+        );
+    }
+
+    #[test]
+    fn encrypt_with_encoding_standard_roundtrip() {
+        let key = generate_master_key();
+        let encrypted = encrypt_with_encoding(&key, "ctx", "secret", Encoding::Standard).unwrap();
+        let decrypted = decrypt_with_encoding(&key, "ctx", &encrypted, Encoding::Standard).unwrap();
+        assert_eq!(decrypted, "secret", "Standard encoding roundtrip must work");
+    }
+
+    #[test]
+    fn encrypt_with_encoding_url_safe_roundtrip() {
+        let key = generate_master_key();
+        let encrypted =
+            encrypt_with_encoding(&key, "ctx", "secret", Encoding::UrlSafeNoPad).unwrap();
+        let decrypted =
+            decrypt_with_encoding(&key, "ctx", &encrypted, Encoding::UrlSafeNoPad).unwrap();
+        assert_eq!(decrypted, "secret", "URL-safe encoding roundtrip must work");
+    }
+
+    #[test]
+    fn encoding_mismatch_fails() {
+        let key = generate_master_key();
+        let encrypted =
+            encrypt_with_encoding(&key, "ctx", "secret", Encoding::UrlSafeNoPad).unwrap();
+        let result = decrypt_with_encoding(&key, "ctx", &encrypted, Encoding::Standard);
+        assert!(result.is_err(), "decoding with wrong encoding must fail");
+    }
+
+    #[test]
+    fn encoding_produces_different_base64() {
+        let key = generate_master_key();
+        let packed = encrypt_bytes_with_context(&key, "ctx", b"test-data>?>").unwrap();
+        let std = Encoding::Standard.encode(&packed);
+        let url = Encoding::UrlSafeNoPad.encode(&packed);
+        assert_ne!(
+            std, url,
+            "Standard and URL-safe must produce different output"
+        );
+        assert!(
+            !url.contains('+') && !url.contains('/') && !url.contains('='),
+            "URL-safe output must not contain +, /, or ="
         );
     }
 }
