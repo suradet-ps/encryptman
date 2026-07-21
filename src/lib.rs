@@ -292,7 +292,10 @@ mod tests {
         let original = "my_secret_password_123!";
         let encrypted = encrypt(&key, original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(original, decrypted, "decrypted text must match original plaintext");
+        assert_eq!(
+            original, decrypted,
+            "decrypted text must match original plaintext"
+        );
     }
 
     #[test]
@@ -300,7 +303,10 @@ mod tests {
         let key = generate_master_key();
         let a = encrypt(&key, "same_password").unwrap();
         let b = encrypt(&key, "same_password").unwrap();
-        assert_ne!(a, b, "same plaintext must produce different ciphertext (random nonce)");
+        assert_ne!(
+            a, b,
+            "same plaintext must produce different ciphertext (random nonce)"
+        );
     }
 
     #[test]
@@ -337,10 +343,7 @@ mod tests {
         let key = generate_master_key();
         let a = encrypt_with_context(&key, "context-a", "same").unwrap();
         let b = encrypt_with_context(&key, "context-b", "same").unwrap();
-        assert_ne!(
-            a, b,
-            "different contexts must produce different ciphertext"
-        );
+        assert_ne!(a, b, "different contexts must produce different ciphertext");
     }
 
     #[test]
@@ -367,24 +370,37 @@ mod tests {
         let original = "รหัสผ่านภาษาไทย 🔐";
         let encrypted = encrypt(&key, original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(original, decrypted, "unicode plaintext must roundtrip correctly");
+        assert_eq!(
+            original, decrypted,
+            "unicode plaintext must roundtrip correctly"
+        );
     }
 
     #[test]
     fn master_key_from_bytes_roundtrip() {
         let bytes = [42u8; 32];
         let key = MasterKey::from_bytes(bytes);
-        assert_eq!(key.as_bytes(), &bytes, "from_bytes must preserve key material");
+        assert_eq!(
+            key.as_bytes(),
+            &bytes,
+            "from_bytes must preserve key material"
+        );
         let encrypted = encrypt(&key, "test").unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(decrypted, "test", "key from bytes must encrypt/decrypt correctly");
+        assert_eq!(
+            decrypted, "test",
+            "key from bytes must encrypt/decrypt correctly"
+        );
     }
 
     #[test]
     fn master_key_debug_does_not_leak() {
         let key = generate_master_key();
         let debug = format!("{:?}", key);
-        assert_eq!(debug, "MasterKey(***)", "Debug output must not leak key bytes");
+        assert_eq!(
+            debug, "MasterKey(***)",
+            "Debug output must not leak key bytes"
+        );
     }
 
     #[test]
@@ -403,6 +419,9 @@ mod tests {
         let original = "a".repeat(10_000);
         let encrypted = encrypt(&key, &original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(original, decrypted, "long plaintext must roundtrip correctly");
+        assert_eq!(
+            original, decrypted,
+            "long plaintext must roundtrip correctly"
+        );
     }
 }
