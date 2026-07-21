@@ -292,7 +292,7 @@ mod tests {
         let original = "my_secret_password_123!";
         let encrypted = encrypt(&key, original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(original, decrypted);
+        assert_eq!(original, decrypted, "decrypted text must match original plaintext");
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
         let key = generate_master_key();
         let a = encrypt(&key, "same_password").unwrap();
         let b = encrypt(&key, "same_password").unwrap();
-        assert_ne!(a, b);
+        assert_ne!(a, b, "same plaintext must produce different ciphertext (random nonce)");
     }
 
     #[test]
@@ -308,19 +308,28 @@ mod tests {
         let key1 = generate_master_key();
         let key2 = generate_master_key();
         let encrypted = encrypt(&key1, "secret").unwrap();
-        assert!(decrypt(&key2, &encrypted).is_err());
+        assert!(
+            decrypt(&key2, &encrypted).is_err(),
+            "decryption with wrong key must fail"
+        );
     }
 
     #[test]
     fn decrypt_invalid_base64_fails() {
         let key = generate_master_key();
-        assert!(decrypt(&key, "!!!invalid-base64!!!").is_err());
+        assert!(
+            decrypt(&key, "!!!invalid-base64!!!").is_err(),
+            "invalid base64 input must fail"
+        );
     }
 
     #[test]
     fn decrypt_truncated_ciphertext_fails() {
         let key = generate_master_key();
-        assert!(decrypt(&key, "dHJ1bmNhdGVk").is_err());
+        assert!(
+            decrypt(&key, "dHJ1bmNhdGVk").is_err(),
+            "truncated ciphertext must fail"
+        );
     }
 
     #[test]
@@ -328,14 +337,20 @@ mod tests {
         let key = generate_master_key();
         let a = encrypt_with_context(&key, "context-a", "same").unwrap();
         let b = encrypt_with_context(&key, "context-b", "same").unwrap();
-        assert_ne!(a, b);
+        assert_ne!(
+            a, b,
+            "different contexts must produce different ciphertext"
+        );
     }
 
     #[test]
     fn context_isolation_decrypt_fails_cross_context() {
         let key = generate_master_key();
         let encrypted = encrypt_with_context(&key, "context-a", "secret").unwrap();
-        assert!(decrypt_with_context(&key, "context-b", &encrypted).is_err());
+        assert!(
+            decrypt_with_context(&key, "context-b", &encrypted).is_err(),
+            "cross-context decryption must fail"
+        );
     }
 
     #[test]
@@ -343,7 +358,7 @@ mod tests {
         let key = generate_master_key();
         let encrypted = encrypt(&key, "").unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(decrypted, "");
+        assert_eq!(decrypted, "", "empty plaintext must roundtrip correctly");
     }
 
     #[test]
@@ -352,24 +367,24 @@ mod tests {
         let original = "รหัสผ่านภาษาไทย 🔐";
         let encrypted = encrypt(&key, original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(original, decrypted);
+        assert_eq!(original, decrypted, "unicode plaintext must roundtrip correctly");
     }
 
     #[test]
     fn master_key_from_bytes_roundtrip() {
         let bytes = [42u8; 32];
         let key = MasterKey::from_bytes(bytes);
-        assert_eq!(key.as_bytes(), &bytes);
+        assert_eq!(key.as_bytes(), &bytes, "from_bytes must preserve key material");
         let encrypted = encrypt(&key, "test").unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(decrypted, "test");
+        assert_eq!(decrypted, "test", "key from bytes must encrypt/decrypt correctly");
     }
 
     #[test]
     fn master_key_debug_does_not_leak() {
         let key = generate_master_key();
         let debug = format!("{:?}", key);
-        assert_eq!(debug, "MasterKey(***)");
+        assert_eq!(debug, "MasterKey(***)", "Debug output must not leak key bytes");
     }
 
     #[test]
@@ -379,7 +394,7 @@ mod tests {
         let key2 = MasterKey::from_bytes(bytes);
         let encrypted = encrypt(&key2, "test").unwrap();
         let decrypted = decrypt(&key2, &encrypted).unwrap();
-        assert_eq!(decrypted, "test");
+        assert_eq!(decrypted, "test", "into_bytes roundtrip must preserve key");
     }
 
     #[test]
@@ -388,6 +403,6 @@ mod tests {
         let original = "a".repeat(10_000);
         let encrypted = encrypt(&key, &original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
-        assert_eq!(original, decrypted);
+        assert_eq!(original, decrypted, "long plaintext must roundtrip correctly");
     }
 }

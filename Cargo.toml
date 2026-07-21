@@ -10,6 +10,10 @@ keywords = ["encryption", "aes", "gcm", "settings", "secrets"]
 categories = ["cryptography", "config"]
 readme = "README.md"
 documentation = "https://docs.rs/encrypt-man"
+exclude = ["/.github", "/target"]
+
+[lints.rust]
+missing_docs = "deny"
 
 [dependencies]
 aes-gcm = "0.10"
