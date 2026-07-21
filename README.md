@@ -1,4 +1,4 @@
-# encrypted-settings
+# encrypt-man
 
 AES-256-GCM encryption for application settings with HKDF key derivation.
 
@@ -13,7 +13,7 @@ AES-256-GCM encryption for application settings with HKDF key derivation.
 ## Quick Start
 
 ```rust
-use encrypted_settings::{encrypt, decrypt, generate_master_key};
+use encrypt_man::{encrypt, decrypt, generate_master_key};
 
 let master_key = generate_master_key();
 
@@ -28,7 +28,7 @@ assert_eq!(decrypted, "my_database_password");
 ### Basic encrypt/decrypt
 
 ```rust
-use encrypted_settings::{encrypt, decrypt, MasterKey};
+use encrypt_man::{encrypt, decrypt, MasterKey};
 
 let key = MasterKey::generate();
 let ct = encrypt(&key, "secret").unwrap();
@@ -38,7 +38,7 @@ let pt = decrypt(&key, &ct).unwrap();
 ### Multiple contexts with one key
 
 ```rust
-use encrypted_settings::{encrypt_with_context, decrypt_with_context, MasterKey};
+use encrypt_man::{encrypt_with_context, decrypt_with_context, MasterKey};
 
 let key = MasterKey::generate();
 
@@ -58,7 +58,7 @@ let db_pt = decrypt_with_context(&key, "database", &db_ct)?;
 ### Storing the master key
 
 ```rust
-use encrypted_settings::MasterKey;
+use encrypt_man::MasterKey;
 
 // Generate a new key
 let key = MasterKey::generate();
@@ -95,7 +95,7 @@ nonce || ciphertext → base64 → encoded string
 
 ## Minimum Supported Rust Version
 
-MSRV: **1.75** (edition 2024)
+MSRV: **1.85** (edition 2024)
 
 ## License
 
