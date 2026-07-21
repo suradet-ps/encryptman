@@ -1,0 +1,22 @@
+[package]
+name = "encrypted-settings"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "AES-256-GCM encryption for application settings with HKDF key derivation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/suradet-ps/encrypted-settings"
+keywords = ["encryption", "aes", "gcm", "settings", "secrets"]
+categories = ["cryptography", "config"]
+readme = "README.md"
+documentation = "https://docs.rs/encrypted-settings"
+
+[dependencies]
+aes-gcm = "0.10"
+hkdf = "0.13"
+sha2 = "0.11"
+base64 = "0.22"
+thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
