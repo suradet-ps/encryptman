@@ -28,16 +28,33 @@
 //! The encryption pipeline:
 //!
 //! 1. **Key derivation**: HKDF-SHA256 derives a unique AES key from the master
-//!    key using an optional application-specific context string.
+//!    key using the application context as the `info` parameter (RFC 5869).
 //! 2. **Encryption**: AES-256-GCM encrypts the plaintext with a random 12-byte
 //!    nonce. The nonce is prepended to the ciphertext.
-//! 3. **Encoding**: The nonce + ciphertext is base64-encoded for safe storage.
+//! 3. **Encoding**: The version + nonce + ciphertext is base64-encoded for safe
+//!    storage.
 //!
 //! ```text
-//! master_key → HKDF-SHA256(context) → AES key
+//! master_key → HKDF-SHA256("encrypt-man:{context}") → AES key
 //! plaintext + random nonce → AES-256-GCM → ciphertext
-//! nonce || ciphertext → base64 → encoded string
+//! version || nonce || ciphertext → base64 → encoded string
 //! ```
+//!
+//! ## When NOT to use this crate
+//!
+//! This crate is designed for encrypting small strings (passwords, API keys,
+//! tokens). It is **not** suitable for:
+//!
+//! - **Password hashing** — use [`argon2`](https://crates.io/crates/argon2) or
+//!   [`bcrypt`](https://crates.io/crates/bcrypt) instead.
+//! - **File encryption** — use a streaming AEAD like
+//!   [`XSalsa20Poly1305`](https://crates.io/crates/xsalsa20poly1305) or
+//!   [`ChaCha20Poly1305`](https://crates.io/crates/chacha20poly1305) with
+//!   proper chunking.
+//! - **Database-at-rest encryption** — use your database's built-in encryption
+//!   (e.g., PostgreSQL `pgcrypto`, MySQL `AES_ENCRYPT`).
+//! - **Large data** — this crate allocates the entire plaintext/ciphertext in
+//!   memory. For large data, use streaming encryption.
 
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
@@ -50,15 +67,45 @@ use zeroize::Zeroize;
 
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
+const VERSION: u8 = 0x01;
 const DEFAULT_CONTEXT: &str = "encrypt-man-v1";
+
+/// Ciphertext encoding variant.
+///
+/// Selects the base64 character set used for encoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encoding {
+    /// Standard base64 (RFC 4648 §4). Safe for files, env vars, databases.
+    Standard,
+
+    /// URL-safe base64 without padding (RFC 4648 §5). Safe for URLs, JWTs,
+    /// cookies, and web applications where `+`/`/` characters are problematic.
+    UrlSafeNoPad,
+}
+
+impl Encoding {
+    fn encode(&self, data: &[u8]) -> String {
+        match self {
+            Encoding::Standard => base64::engine::general_purpose::STANDARD.encode(data),
+            Encoding::UrlSafeNoPad => base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data),
+        }
+    }
+
+    fn decode(&self, data: &str) -> Result<Vec<u8>, base64::DecodeError> {
+        match self {
+            Encoding::Standard => base64::engine::general_purpose::STANDARD.decode(data),
+            Encoding::UrlSafeNoPad => base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data),
+        }
+    }
+}
 
 /// Errors that can occur during encryption or decryption.
 #[derive(Debug, Error)]
 pub enum CryptoError {
-    /// The ciphertext is too short to contain a valid nonce.
+    /// The ciphertext is too short to contain a valid version + nonce.
     #[error("ciphertext too short: expected at least {expected} bytes, got {actual}")]
     CiphertextTooShort {
-        /// Expected minimum length (nonce size).
+        /// Expected minimum length (version + nonce size).
         expected: usize,
         /// Actual length received.
         actual: usize,
@@ -67,6 +114,10 @@ pub enum CryptoError {
     /// The input is not valid base64.
     #[error("invalid base64: {0}")]
     InvalidBase64(#[from] base64::DecodeError),
+
+    /// The ciphertext version byte is unrecognized.
+    #[error("unsupported version: {0}")]
+    UnsupportedVersion(u8),
 
     /// AES-256-GCM decryption failed (wrong key or corrupted data).
     #[error("decryption failed: wrong key or corrupted ciphertext")]
@@ -79,6 +130,19 @@ pub enum CryptoError {
     /// HKDF key derivation failed.
     #[error("key derivation failed: {0}")]
     KeyDerivation(String),
+
+    /// AES-256-GCM encryption failed.
+    #[error("encryption failed: {0}")]
+    EncryptionFailed(String),
+
+    /// The provided byte slice is not exactly 32 bytes.
+    #[error("invalid key length: expected {expected} bytes, got {actual}")]
+    InvalidKeyLength {
+        /// Expected length (32 bytes).
+        expected: usize,
+        /// Actual length received.
+        actual: usize,
+    },
 }
 
 /// A master key for encryption/decryption.
@@ -126,7 +190,10 @@ impl MasterKey {
 
     /// Consume the key and return the raw bytes.
     ///
-    /// The returned array will NOT be zeroed on drop. Use with caution.
+    /// **Security note**: The returned byte array is **no longer protected by
+    /// Zeroize**. It will not be cleared on drop. The caller is responsible for
+    /// handling the bytes securely — e.g., zeroing them when no longer needed,
+    /// or ensuring they do not end up in logs, swap files, or core dumps.
     pub fn into_bytes(mut self) -> [u8; KEY_SIZE] {
         let bytes = self.0;
         self.0.zeroize();
@@ -140,9 +207,41 @@ impl std::fmt::Debug for MasterKey {
     }
 }
 
+impl TryFrom<&[u8]> for MasterKey {
+    type Error = CryptoError;
+
+    /// Create a master key from a byte slice.
+    ///
+    /// Returns [`CryptoError::InvalidKeyLength`] if the slice is not exactly
+    /// 32 bytes.
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        if slice.len() != KEY_SIZE {
+            return Err(CryptoError::InvalidKeyLength {
+                expected: KEY_SIZE,
+                actual: slice.len(),
+            });
+        }
+        let mut bytes = [0u8; KEY_SIZE];
+        bytes.copy_from_slice(slice);
+        Ok(Self(bytes))
+    }
+}
+
+impl TryFrom<Vec<u8>> for MasterKey {
+    type Error = CryptoError;
+
+    /// Create a master key from a `Vec<u8>`.
+    ///
+    /// Returns [`CryptoError::InvalidKeyLength`] if the vector is not exactly
+    /// 32 bytes.
+    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(vec.as_slice())
+    }
+}
+
 /// Encrypt a plaintext string using a master key.
 ///
-/// Returns a base64-encoded string containing the nonce + ciphertext.
+/// Returns a base64-encoded string containing the version + nonce + ciphertext.
 /// Each call generates a fresh random nonce, so encrypting the same
 /// plaintext twice produces different outputs.
 ///
@@ -183,11 +282,12 @@ pub fn decrypt(master_key: &MasterKey, encoded: &str) -> Result<String, CryptoEr
     decrypt_with_context(master_key, DEFAULT_CONTEXT, encoded)
 }
 
-/// Encrypt with a custom application context string.
+/// Encrypt a plaintext string with a custom context and encoding.
 ///
-/// The context is used in HKDF key derivation to derive a unique AES key.
-/// Different context strings produce different keys from the same master key,
-/// allowing one master key to safely encrypt data for multiple purposes.
+/// The context is used in HKDF key derivation (`info` parameter) to derive a
+/// unique AES key. Different context strings produce different keys from the
+/// same master key, allowing one master key to safely encrypt data for multiple
+/// purposes.
 ///
 /// # Arguments
 ///
@@ -212,25 +312,11 @@ pub fn encrypt_with_context(
     context: &str,
     plaintext: &str,
 ) -> Result<String, CryptoError> {
-    let key = derive_key(master_key, context);
-    let cipher = Aes256Gcm::new(&key);
-
-    let mut nonce_bytes = [0u8; NONCE_SIZE];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_bytes())
-        .map_err(|e| CryptoError::KeyDerivation(format!("encryption failed: {e}")))?;
-
-    let mut packed = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
-    packed.extend_from_slice(&nonce_bytes);
-    packed.extend_from_slice(&ciphertext);
-
-    Ok(base64::engine::general_purpose::STANDARD.encode(&packed))
+    encrypt_bytes_with_context(master_key, context, plaintext.as_bytes())
+        .map(|bytes| Encoding::Standard.encode(&bytes))
 }
 
-/// Decrypt with a custom application context string.
+/// Decrypt a ciphertext string with a custom context.
 ///
 /// The `context` must match the context used during encryption.
 ///
@@ -244,26 +330,88 @@ pub fn decrypt_with_context(
     context: &str,
     encoded: &str,
 ) -> Result<String, CryptoError> {
-    let key = derive_key(master_key, context);
+    let packed = Encoding::Standard.decode(encoded)?;
+    let plaintext = decrypt_bytes_with_context(master_key, context, &packed)?;
+    Ok(String::from_utf8(plaintext)?)
+}
+
+/// Encrypt arbitrary bytes with a custom context.
+///
+/// Returns the raw ciphertext bytes: `version || nonce || ciphertext`.
+/// This is useful when you need to store or transmit binary data.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to encrypt with.
+/// * `context` - An application-specific context string for key derivation.
+/// * `plaintext` - The bytes to encrypt.
+pub fn encrypt_bytes_with_context(
+    master_key: &MasterKey,
+    context: &str,
+    plaintext: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    let key = derive_key(master_key, context)?;
     let cipher = Aes256Gcm::new(&key);
 
-    let packed = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
-    if packed.len() <= NONCE_SIZE {
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| CryptoError::EncryptionFailed(format!("{e}")))?;
+
+    let mut packed = Vec::with_capacity(1 + NONCE_SIZE + ciphertext.len());
+    packed.push(VERSION);
+    packed.extend_from_slice(&nonce_bytes);
+    packed.extend_from_slice(&ciphertext);
+
+    Ok(packed)
+}
+
+/// Decrypt arbitrary bytes with a custom context.
+///
+/// Expects the input to be `version || nonce || ciphertext` (raw bytes, not
+/// base64-encoded).
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to decrypt with.
+/// * `context` - The context string used during encryption.
+/// * `packed` - The raw ciphertext bytes to decrypt.
+pub fn decrypt_bytes_with_context(
+    master_key: &MasterKey,
+    context: &str,
+    packed: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    let min_len = 1 + NONCE_SIZE + 1;
+    if packed.len() < min_len {
         return Err(CryptoError::CiphertextTooShort {
-            expected: NONCE_SIZE + 1,
+            expected: min_len,
             actual: packed.len(),
         });
     }
 
-    let (nonce_bytes, ciphertext) = packed.split_at(NONCE_SIZE);
+    let (version, rest) = packed
+        .split_first()
+        .ok_or(CryptoError::CiphertextTooShort {
+            expected: min_len,
+            actual: packed.len(),
+        })?;
+
+    if *version != VERSION {
+        return Err(CryptoError::UnsupportedVersion(*version));
+    }
+
+    let key = derive_key(master_key, context)?;
+    let cipher = Aes256Gcm::new(&key);
+
+    let (nonce_bytes, ciphertext) = rest.split_at(NONCE_SIZE);
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    let plaintext = cipher
+    cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|_| CryptoError::DecryptionFailed)?;
-
-    Ok(String::from_utf8(plaintext)?)
+        .map_err(|_| CryptoError::DecryptionFailed)
 }
 
 /// Generate a random master key.
@@ -274,12 +422,16 @@ pub fn generate_master_key() -> MasterKey {
 }
 
 /// Derive an AES-256 key from a master key using HKDF-SHA256.
-fn derive_key(master_key: &MasterKey, context: &str) -> Key<Aes256Gcm> {
-    let hk = Hkdf::<Sha256>::new(Some(context.as_bytes()), master_key.as_bytes());
+///
+/// Uses the master key as input keying material (IKM) and the application
+/// context as the `info` parameter, following RFC 5869.
+fn derive_key(master_key: &MasterKey, context: &str) -> Result<Key<Aes256Gcm>, CryptoError> {
+    let hk = Hkdf::<Sha256>::new(None, master_key.as_bytes());
     let mut okm = [0u8; KEY_SIZE];
-    hk.expand(b"encrypt-man", &mut okm)
-        .expect("HKDF expand should not fail for a 32-byte output");
-    *Key::<Aes256Gcm>::from_slice(&okm)
+    let info = format!("encrypt-man:{context}");
+    hk.expand(info.as_bytes(), &mut okm)
+        .map_err(|e| CryptoError::KeyDerivation(format!("{e}")))?;
+    Ok(*Key::<Aes256Gcm>::from_slice(&okm))
 }
 
 #[cfg(test)]
@@ -422,6 +574,79 @@ mod tests {
         assert_eq!(
             original, decrypted,
             "long plaintext must roundtrip correctly"
+        );
+    }
+
+    #[test]
+    fn try_from_ref_slice_valid() {
+        let bytes = [1u8; 32];
+        let key = MasterKey::try_from(bytes.as_slice()).unwrap();
+        assert_eq!(key.as_bytes(), &bytes);
+    }
+
+    #[test]
+    fn try_from_ref_slice_wrong_length() {
+        let bytes = [1u8; 16];
+        let result = MasterKey::try_from(bytes.as_slice());
+        assert!(result.is_err(), "wrong length must fail");
+    }
+
+    #[test]
+    fn try_from_vec_valid() {
+        let vec = vec![2u8; 32];
+        let key = MasterKey::try_from(vec).unwrap();
+        assert_eq!(key.as_bytes(), &[2u8; 32]);
+    }
+
+    #[test]
+    fn try_from_vec_wrong_length() {
+        let vec = vec![2u8; 64];
+        let result = MasterKey::try_from(vec);
+        assert!(result.is_err(), "wrong length must fail");
+    }
+
+    #[test]
+    fn version_byte_in_ciphertext() {
+        let key = generate_master_key();
+        let encrypted = encrypt(&key, "test").unwrap();
+        let packed = Encoding::Standard.decode(&encrypted).unwrap();
+        assert_eq!(packed[0], VERSION, "first byte must be version");
+    }
+
+    #[test]
+    fn unsupported_version_fails() {
+        let key = generate_master_key();
+        let encrypted = encrypt(&key, "test").unwrap();
+        let mut packed = Encoding::Standard.decode(&encrypted).unwrap();
+        packed[0] = 0xFF;
+        let result = decrypt_bytes_with_context(&key, DEFAULT_CONTEXT, &packed);
+        assert!(result.is_err(), "unsupported version must fail");
+    }
+
+    #[test]
+    fn binary_plaintext_roundtrip() {
+        let key = generate_master_key();
+        let original: Vec<u8> = (0..=255).cycle().take(1000).collect();
+        let packed = encrypt_bytes_with_context(&key, "binary", &original).unwrap();
+        let decrypted = decrypt_bytes_with_context(&key, "binary", &packed).unwrap();
+        assert_eq!(
+            original, decrypted,
+            "binary plaintext must roundtrip correctly"
+        );
+    }
+
+    #[test]
+    fn url_safe_no_pad_encoding() {
+        let key = generate_master_key();
+        let packed = encrypt_bytes_with_context(&key, "test", b"hello").unwrap();
+        let encoded = Encoding::UrlSafeNoPad.encode(&packed);
+        assert!(
+            !encoded.contains('+') && !encoded.contains('/'),
+            "URL-safe encoding must not contain + or /"
+        );
+        assert!(
+            !encoded.contains('='),
+            "URL-safe no-pad encoding must not contain ="
         );
     }
 }
