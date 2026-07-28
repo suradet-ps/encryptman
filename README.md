@@ -20,7 +20,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-encryptman = "0.1"
+encryptman = "0.2.0"
 ```
 
 ## Quick Start
