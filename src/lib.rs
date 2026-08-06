@@ -506,8 +506,8 @@ fn derive_key(master_key: &MasterKey, context: &str) -> Result<Key<Aes256Gcm>, C
     let info = format!("encryptman:{context}");
     hk.expand(info.as_bytes(), &mut okm)
         .map_err(|e| CryptoError::KeyDerivation(format!("{e}")))?;
-    Ok(Key::<Aes256Gcm>::try_from(okm.as_slice())
-        .map_err(|_| CryptoError::KeyDerivation("invalid key length".into()))?)
+    Key::<Aes256Gcm>::try_from(okm.as_slice())
+        .map_err(|_| CryptoError::KeyDerivation("invalid key length".into()))
 }
 
 #[cfg(test)]
