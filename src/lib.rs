@@ -56,8 +56,7 @@
 //! - **Large data** — this crate allocates the entire plaintext/ciphertext in
 //!   memory. For large data, use streaming encryption.
 
-use aes_gcm::aead::rand_core::RngCore;
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::Engine;
 use hkdf::Hkdf;
@@ -191,7 +190,7 @@ impl MasterKey {
     /// The key is filled with cryptographically secure random bytes.
     pub fn generate() -> Self {
         let mut key = [0u8; KEY_SIZE];
-        OsRng.fill_bytes(&mut key);
+        getrandom::fill(&mut key).expect("failed to generate random bytes");
         Self(key)
     }
 
@@ -429,11 +428,12 @@ pub fn encrypt_bytes_with_context(
     let cipher = Aes256Gcm::new(&key);
 
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    getrandom::fill(&mut nonce_bytes).expect("failed to generate random nonce");
+    let nonce = Nonce::try_from(nonce_bytes.as_slice())
+        .map_err(|_| CryptoError::EncryptionFailed("invalid nonce length".into()))?;
 
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|e| CryptoError::EncryptionFailed(format!("{e}")))?;
 
     let mut packed = Vec::with_capacity(1 + NONCE_SIZE + ciphertext.len());
@@ -482,10 +482,10 @@ pub fn decrypt_bytes_with_context(
     let cipher = Aes256Gcm::new(&key);
 
     let (nonce_bytes, ciphertext) = rest.split_at(NONCE_SIZE);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| CryptoError::DecryptionFailed)?;
 
     cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| CryptoError::DecryptionFailed)
 }
 
@@ -506,7 +506,8 @@ fn derive_key(master_key: &MasterKey, context: &str) -> Result<Key<Aes256Gcm>, C
     let info = format!("encryptman:{context}");
     hk.expand(info.as_bytes(), &mut okm)
         .map_err(|e| CryptoError::KeyDerivation(format!("{e}")))?;
-    Ok(*Key::<Aes256Gcm>::from_slice(&okm))
+    Ok(Key::<Aes256Gcm>::try_from(okm.as_slice())
+        .map_err(|_| CryptoError::KeyDerivation("invalid key length".into()))?)
 }
 
 #[cfg(test)]

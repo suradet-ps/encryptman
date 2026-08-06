@@ -16,10 +16,12 @@ include = ["src/**", "README.md", "LICENSE*", "CHANGELOG.md"]
 missing_docs = "deny"
 
 [dependencies]
-aes-gcm = "0.10"
+aes-gcm = "0.11.0"
+base64 = "0.23.1"
+getrandom = "0.4.3"
 hkdf = "0.13"
+rand = "0.10.2"
 sha2 = "0.11"
-base64 = "0.22"
 thiserror = "2"
 zeroize = { version = "1", features = ["derive"] }
 
