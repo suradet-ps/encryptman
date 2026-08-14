@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.3.0] - 2026-08-14
+
+### Changed
+
+- **BREAKING**: `MasterKey::generate()` and `generate_master_key()` now return
+  `Result<MasterKey, CryptoError>` instead of panicking when the operating
+  system's random number generator is unavailable. Migration: add `.unwrap()`
+  or handle the new `CryptoError::RandomnessFailed` variant.
+- **BREAKING**: `CryptoError::EncryptionFailed` no longer carries the
+  underlying `aead` error string (unstable upstream surface). It is now a
+  unit variant; `CryptoError` derives `PartialEq`, `Eq`, and `Clone`.
+- Nonce generation no longer panics on RNG failure — it returns
+  `CryptoError::RandomnessFailed`.
+- `TryFrom<Vec<u8>> for MasterKey` now zeroizes the source buffer before it
+  is dropped, on both success and error paths, so no copy of the key
+  material survives in the caller's allocation.
+- The HKDF output buffer in `derive_key()` is zeroized after the AES key is
+  constructed.
+- `aes-gcm` now enables its `zeroize` feature, scrubbing the internal GHASH
+  key after each encryption/decryption call.
+
+### Removed
+
+- **BREAKING**: dropped the unused `rand` dependency (was declared but never
+  used in code; `getrandom` is the only source of randomness).
+
+### Security
+
+- Added `#![forbid(unsafe_code)]` — the crate guarantees it contains no
+  unsafe code.
+- All public API panic paths removed: the crate returns `Result` everywhere
+  an operation can fail. Verified by a CI grep gate that rejects
+  `unwrap()` / `expect()` / `panic!` in non-test, non-doc code.
+
 ## [0.2.2] - 2026-08-06
 
 ### Changed
