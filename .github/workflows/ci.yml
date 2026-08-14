@@ -28,7 +28,7 @@ jobs:
       - name: Enforce no panics in library code
         run: |
           awk '
-            /^\s*\/\// { next }
+            /^[[:space:]]*\/\// { next }
             /^#\[cfg\(test\)\]/ { in_test = 1 }
             in_test && /^}/ { in_test = 0 }
             !in_test && /expect\(|unwrap\(|panic!/ { print "line " FNR ": " $0; bad = 1 }
@@ -51,7 +51,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           toolchain: stable
-      - run: cargo install cargo-machete --locked
+      - run: cargo install cargo-machete --version 0.9.2 --locked
       - run: cargo machete
 
   test:

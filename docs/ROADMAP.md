@@ -332,7 +332,7 @@ The four findings that matter *right now*: panicking RNG paths, key
 material left in RAM (source Vec, derived keys), a dead dependency, and
 an unenforced `unsafe` guarantee.
 
-**Status: COMPLETE (released as 0.3.0)**
+**Status: COMPLETE -- ships in 0.3.0 (tag + publish pending)**
 
 - [x] **No-panic API.** `MasterKey::generate()` and `generate_master_key()`
   return `Result<MasterKey, CryptoError>` (new `RandomnessFailed`
