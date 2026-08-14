@@ -20,7 +20,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-encryptman = "0.2.2"
+encryptman = "0.3.0"
 ```
 
 ## Quick Start
@@ -28,12 +28,15 @@ encryptman = "0.2.2"
 ```rust
 use encryptman::{encrypt, decrypt, generate_master_key};
 
-let master_key = generate_master_key();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let master_key = generate_master_key()?;
 
-let encrypted = encrypt(&master_key, "my_database_password")?;
-let decrypted = decrypt(&master_key, &encrypted)?;
+    let encrypted = encrypt(&master_key, "my_database_password")?;
+    let decrypted = decrypt(&master_key, &encrypted)?;
 
-assert_eq!(decrypted, "my_database_password");
+    assert_eq!(decrypted, "my_database_password");
+    Ok(())
+}
 ```
 
 ## Usage
@@ -43,7 +46,7 @@ assert_eq!(decrypted, "my_database_password");
 ```rust
 use encryptman::{encrypt, decrypt, MasterKey};
 
-let key = MasterKey::generate();
+let key = MasterKey::generate()?;
 let ct = encrypt(&key, "secret")?;
 let pt = decrypt(&key, &ct)?;
 ```
@@ -53,7 +56,7 @@ let pt = decrypt(&key, &ct)?;
 ```rust
 use encryptman::{encrypt_with_context, decrypt_with_context, MasterKey};
 
-let key = MasterKey::generate();
+let key = MasterKey::generate()?;
 
 // Database passwords
 let db_ct = encrypt_with_context(&key, "database", "postgres://...")?;
@@ -73,7 +76,7 @@ let db_pt = decrypt_with_context(&key, "database", &db_ct)?;
 ```rust
 use encryptman::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
 
-let key = generate_master_key();
+let key = generate_master_key()?;
 
 let encrypted = encrypt_with_encoding(&key, "jwt", "token", Encoding::UrlSafeNoPad)?;
 let decrypted = decrypt_with_encoding(&key, "jwt", &encrypted, Encoding::UrlSafeNoPad)?;
@@ -87,7 +90,7 @@ assert_eq!(decrypted, "token");
 use encryptman::MasterKey;
 
 // Generate a new key
-let key = MasterKey::generate();
+let key = MasterKey::generate()?;
 
 // Export raw bytes (e.g., to store in OS keychain / Vault)
 let bytes = *key.as_bytes();

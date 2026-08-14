@@ -25,6 +25,34 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features
+      - name: Enforce no panics in library code
+        run: |
+          awk '
+            /^\s*\/\// { next }
+            /^#\[cfg\(test\)\]/ { in_test = 1 }
+            in_test && /^}/ { in_test = 0 }
+            !in_test && /expect\(|unwrap\(|panic!/ { print "line " FNR ": " $0; bad = 1 }
+            END {
+              if (bad) {
+                print "FAIL: unwrap()/expect()/panic! found in non-test, non-doc code" > "/dev/stderr"
+                exit 1
+              }
+              print "OK: no unwrap()/expect()/panic! in library code"
+            }
+          ' src/lib.rs
+
+  machete:
+    name: Dead dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
+        with:
+          toolchain: stable
+      - run: cargo install cargo-machete --locked
+      - run: cargo machete
 
   test:
     name: Test

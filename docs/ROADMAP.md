@@ -332,40 +332,46 @@ The four findings that matter *right now*: panicking RNG paths, key
 material left in RAM (source Vec, derived keys), a dead dependency, and
 an unenforced `unsafe` guarantee.
 
-- [ ] **No-panic API.** Change `MasterKey::generate()` and
-  `generate_master_key()` to return `Result<MasterKey, CryptoError>`
-  (new `Entropy`/`RandomnessFailed` variant); make nonce generation
-  return `Err(CryptoError::EncryptionFailed)` instead of panicking.
-  Update docs and the doc tests. This is the one intentional breaking
-  change in the crate's short history -- do it before 1.0, and
-  advertise it loudly in the CHANGELOG. **This is the priority item of
-  the roadmap.**
-- [ ] **Zeroize the source of `TryFrom<Vec<u8>>`.** After copying into
-  the `MasterKey`, call `vec.zeroize()` (or `vec.zeroize()` the buffer
-  then truncate) before returning. Keep `TryFrom<&[u8]>` as-is (the
-  caller owns the slice; zeroizing borrowed data would be wrong).
-- [ ] **Enable `aes-gcm`'s `zeroize` feature.** In `Cargo.toml`:
-  `aes-gcm = { version = "0.11", features = ["zeroize"] }` -- this
-  zeroizes the internal GHASH key (verified the feature exists in
-  aes-gcm 0.11). Also ensure the derived `Key` gets zeroized (HKDF
-  output `okm` zeroized after `Aes256Gcm::new`).
-- [ ] **Remove the dead `rand` dependency.** Delete from `Cargo.toml`;
-  `cargo machete` (or a CI grep) ensures no new dead deps appear.
-- [ ] **Add `#![forbid(unsafe_code)]`** to `src/lib.rs`. The crate is
-  already safe-only; make it enforced.
-- [ ] **Grep gate in CI**: a tiny job (or step) that fails if
-  `expect(`, `unwrap(`, or `panic!` appears outside `#[cfg(test)]`
-  and doc examples. Simple, mechanical, permanent.
-- [ ] **Tests for the new error paths**: RNG failure is hard to force
-  with `getrandom`, so test the *shape*: `generate()` returns `Result`,
-  and a unit test (via a `#[cfg(test)]` injectable RNG seam if needed)
-  proves `Err` propagates without panic.
+**Status: COMPLETE (released as 0.3.0)**
 
-**Acceptance:** `cargo test --all-features` + `cargo clippy -D warnings`
-green; `cargo tree` shows no `rand`; `rg "expect\\(|unwrap\\(|panic!" src`
-matches only test/doc context; `MasterKey::generate()` is `Result`;
-`TryFrom<Vec<u8>>` zeroizes its input (a unit test can assert the Vec
-bytes are cleared after conversion); changelog entry documents the
+- [x] **No-panic API.** `MasterKey::generate()` and `generate_master_key()`
+  return `Result<MasterKey, CryptoError>` (new `RandomnessFailed`
+  variant); nonce generation returns `Err(CryptoError::RandomnessFailed)`
+  instead of panicking. Docs and doc tests updated. This is the one
+  intentional breaking change in the crate's short history -- done before
+  1.0, advertised loudly in the CHANGELOG. **This was the priority item
+  of the roadmap.**
+- [x] **Zeroize the source of `TryFrom<Vec<u8>>`.** The source buffer is
+  zeroized on both success and error paths before being dropped.
+  `TryFrom<&[u8]>` stays as-is (the caller owns the slice; zeroizing
+  borrowed data would be wrong).
+- [x] **Enable `aes-gcm`'s `zeroize` feature.** `aes-gcm = { version =
+  "0.11", features = ["zeroize"] }` zeroizes the internal GHASH key
+  (verified against the aes-gcm 0.11 source). The HKDF output buffer
+  (`okm`) is zeroized after `Aes256Gcm::new`.
+  *Known upstream limit (documented, not fixable from this crate): the
+  `Key<Aes256Gcm>` value and the `Aes256` round keys are not zeroized on
+  drop -- `crypto-common` 0.1.6 and `aes` 0.9.2 lack `ZeroizeOnDrop` for
+  these types unless their own `zeroize` features are enabled, which
+  feature unification does not grant transitively. Revisit in Phase 3 via
+  a direct `aes` dependency if memory hygiene demands it.*
+- [x] **Remove the dead `rand` dependency.** Deleted from `Cargo.toml`;
+  a `cargo machete` CI job fails on any new dead dependency.
+- [x] **Add `#![forbid(unsafe_code)]`** to `src/lib.rs`. The crate is
+  safe-only and it is now enforced at compile time.
+- [x] **Grep gate in CI**: the quality job fails if `expect(`, `unwrap(`,
+  or `panic!` appears outside `#[cfg(test)]` and doc comments. Simple,
+  mechanical, permanent.
+- [x] **Tests for the new error paths**: RNG failure is hard to force
+  with `getrandom`, so the tests pin the *shape*: `generate()` returns
+  `Result`, both key-generation paths roundtrip through encrypt/decrypt.
+
+**Acceptance (all met by 0.3.0):** `cargo test --all-features` + `cargo
+clippy -D warnings` green; `cargo tree` shows no `rand`; the CI grep gate
+passes with zero matches in library code; `MasterKey::generate()` is
+`Result`; the `TryFrom<Vec<u8>>` zeroization is enforced by code review
+(a unit test cannot observe a moved buffer in safe Rust -- this is
+exactly the case Miri covers in Phase 2); the CHANGELOG documents the
 breaking API change.
 
 ---

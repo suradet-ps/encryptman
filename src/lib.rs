@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! # encryptman
 //!
 //! AES-256-GCM encryption for application settings with HKDF key derivation.
@@ -12,15 +14,18 @@
 //! ```rust
 //! use encryptman::{encrypt, decrypt, generate_master_key};
 //!
-//! // Generate a master key (store this securely — e.g., OS keychain)
-//! let master_key = generate_master_key();
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Generate a master key (store this securely — e.g., OS keychain)
+//!     let master_key = generate_master_key()?;
 //!
-//! // Encrypt
-//! let ciphertext = encrypt(&master_key, "my_database_password").unwrap();
+//!     // Encrypt
+//!     let ciphertext = encrypt(&master_key, "my_database_password")?;
 //!
-//! // Decrypt
-//! let plaintext = decrypt(&master_key, &ciphertext).unwrap();
-//! assert_eq!(plaintext, "my_database_password");
+//!     // Decrypt
+//!     let plaintext = decrypt(&master_key, &ciphertext)?;
+//!     assert_eq!(plaintext, "my_database_password");
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Design
@@ -123,7 +128,7 @@ impl Encoding {
 }
 
 /// Errors that can occur during encryption or decryption.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CryptoError {
     /// The ciphertext is too short to contain a valid version + nonce.
     #[error("ciphertext too short: expected at least {expected} bytes, got {actual}")]
@@ -155,8 +160,12 @@ pub enum CryptoError {
     KeyDerivation(String),
 
     /// AES-256-GCM encryption failed.
-    #[error("encryption failed: {0}")]
-    EncryptionFailed(String),
+    #[error("encryption failed")]
+    EncryptionFailed,
+
+    /// The operating system's secure random number generator is unavailable.
+    #[error("failed to acquire secure randomness")]
+    RandomnessFailed,
 
     /// The provided byte slice is not exactly 32 bytes.
     #[error("invalid key length: expected {expected} bytes, got {actual}")]
@@ -177,7 +186,7 @@ pub enum CryptoError {
 /// ```rust
 /// use encryptman::MasterKey;
 ///
-/// let key = MasterKey::generate();
+/// let key = MasterKey::generate().unwrap();
 /// // key is automatically zeroed when dropped
 /// ```
 #[derive(Zeroize)]
@@ -188,10 +197,15 @@ impl MasterKey {
     /// Generate a new random master key.
     ///
     /// The key is filled with cryptographically secure random bytes.
-    pub fn generate() -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::RandomnessFailed`] if the operating system's
+    /// random number generator is unavailable.
+    pub fn generate() -> Result<Self, CryptoError> {
         let mut key = [0u8; KEY_SIZE];
-        getrandom::fill(&mut key).expect("failed to generate random bytes");
-        Self(key)
+        getrandom::fill(&mut key).map_err(|_| CryptoError::RandomnessFailed)?;
+        Ok(Self(key))
     }
 
     /// Create a master key from an existing 32-byte array.
@@ -255,10 +269,17 @@ impl TryFrom<Vec<u8>> for MasterKey {
 
     /// Create a master key from a `Vec<u8>`.
     ///
+    /// The source buffer is zeroized before it is dropped, so no copy of the
+    /// key material survives in the caller's allocation.
+    ///
+    /// # Errors
+    ///
     /// Returns [`CryptoError::InvalidKeyLength`] if the vector is not exactly
     /// 32 bytes.
-    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(vec.as_slice())
+    fn try_from(mut vec: Vec<u8>) -> Result<Self, Self::Error> {
+        let result = Self::try_from(vec.as_slice());
+        vec.zeroize();
+        result
     }
 }
 
@@ -278,7 +299,7 @@ impl TryFrom<Vec<u8>> for MasterKey {
 /// ```rust
 /// use encryptman::{encrypt, decrypt, generate_master_key};
 ///
-/// let key = generate_master_key();
+/// let key = generate_master_key().unwrap();
 /// let encrypted = encrypt(&key, "hello").unwrap();
 /// let decrypted = decrypt(&key, &encrypted).unwrap();
 /// assert_eq!(decrypted, "hello");
@@ -323,7 +344,7 @@ pub fn decrypt(master_key: &MasterKey, encoded: &str) -> Result<String, CryptoEr
 /// ```rust
 /// use encryptman::{encrypt_with_context, decrypt_with_context, generate_master_key};
 ///
-/// let key = generate_master_key();
+/// let key = generate_master_key().unwrap();
 /// let enc_db = encrypt_with_context(&key, "database-passwords", "secret").unwrap();
 /// let enc_api = encrypt_with_context(&key, "api-keys", "secret").unwrap();
 ///
@@ -373,7 +394,7 @@ pub fn decrypt_with_context(
 /// ```rust
 /// use encryptman::{encrypt_with_encoding, decrypt_with_encoding, generate_master_key, Encoding};
 ///
-/// let key = generate_master_key();
+/// let key = generate_master_key().unwrap();
 /// let encrypted = encrypt_with_encoding(&key, "jwt", "token", Encoding::UrlSafeNoPad).unwrap();
 /// let decrypted = decrypt_with_encoding(&key, "jwt", &encrypted, Encoding::UrlSafeNoPad).unwrap();
 /// assert_eq!(decrypted, "token");
@@ -428,13 +449,13 @@ pub fn encrypt_bytes_with_context(
     let cipher = Aes256Gcm::new(&key);
 
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    getrandom::fill(&mut nonce_bytes).expect("failed to generate random nonce");
-    let nonce = Nonce::try_from(nonce_bytes.as_slice())
-        .map_err(|_| CryptoError::EncryptionFailed("invalid nonce length".into()))?;
+    getrandom::fill(&mut nonce_bytes).map_err(|_| CryptoError::RandomnessFailed)?;
+    let nonce =
+        Nonce::try_from(nonce_bytes.as_slice()).map_err(|_| CryptoError::EncryptionFailed)?;
 
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
-        .map_err(|e| CryptoError::EncryptionFailed(format!("{e}")))?;
+        .map_err(|_| CryptoError::EncryptionFailed)?;
 
     let mut packed = Vec::with_capacity(1 + NONCE_SIZE + ciphertext.len());
     packed.push(VERSION);
@@ -492,22 +513,30 @@ pub fn decrypt_bytes_with_context(
 /// Generate a random master key.
 ///
 /// Convenience function equivalent to `MasterKey::generate()`.
-pub fn generate_master_key() -> MasterKey {
+///
+/// # Errors
+///
+/// Returns [`CryptoError::RandomnessFailed`] if the operating system's
+/// random number generator is unavailable.
+pub fn generate_master_key() -> Result<MasterKey, CryptoError> {
     MasterKey::generate()
 }
 
 /// Derive an AES-256 key from a master key using HKDF-SHA256.
 ///
 /// Uses the master key as input keying material (IKM) and the application
-/// context as the `info` parameter, following RFC 5869.
+/// context as the `info` parameter, following RFC 5869. The HKDF output
+/// buffer is zeroized before this function returns.
 fn derive_key(master_key: &MasterKey, context: &str) -> Result<Key<Aes256Gcm>, CryptoError> {
     let hk = Hkdf::<Sha256>::new(None, master_key.as_bytes());
     let mut okm = [0u8; KEY_SIZE];
     let info = format!("encryptman:{context}");
     hk.expand(info.as_bytes(), &mut okm)
         .map_err(|e| CryptoError::KeyDerivation(format!("{e}")))?;
-    Key::<Aes256Gcm>::try_from(okm.as_slice())
-        .map_err(|_| CryptoError::KeyDerivation("invalid key length".into()))
+    let key = Key::<Aes256Gcm>::try_from(okm.as_slice())
+        .map_err(|_| CryptoError::KeyDerivation("invalid key length".into()))?;
+    okm.zeroize();
+    Ok(key)
 }
 
 #[cfg(test)]
@@ -515,8 +544,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn generate_returns_result() {
+        let key = MasterKey::generate().unwrap();
+        let encrypted = encrypt(&key, "test").unwrap();
+        let decrypted = decrypt(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, "test");
+    }
+
+    #[test]
+    fn generate_master_key_fn_returns_result() {
+        let key = generate_master_key().unwrap();
+        assert_eq!(key.as_bytes().len(), KEY_SIZE);
+    }
+
+    #[test]
     fn encrypt_decrypt_roundtrip() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let original = "my_secret_password_123!";
         let encrypted = encrypt(&key, original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
@@ -528,7 +571,7 @@ mod tests {
 
     #[test]
     fn encrypt_produces_different_output_each_time() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let a = encrypt(&key, "same_password").unwrap();
         let b = encrypt(&key, "same_password").unwrap();
         assert_ne!(
@@ -539,8 +582,8 @@ mod tests {
 
     #[test]
     fn decrypt_wrong_key_fails() {
-        let key1 = generate_master_key();
-        let key2 = generate_master_key();
+        let key1 = generate_master_key().unwrap();
+        let key2 = generate_master_key().unwrap();
         let encrypted = encrypt(&key1, "secret").unwrap();
         assert!(
             decrypt(&key2, &encrypted).is_err(),
@@ -550,7 +593,7 @@ mod tests {
 
     #[test]
     fn decrypt_invalid_base64_fails() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         assert!(
             decrypt(&key, "!!!invalid-base64!!!").is_err(),
             "invalid base64 input must fail"
@@ -559,7 +602,7 @@ mod tests {
 
     #[test]
     fn decrypt_truncated_ciphertext_fails() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         assert!(
             decrypt(&key, "dHJ1bmNhdGVk").is_err(),
             "truncated ciphertext must fail"
@@ -568,7 +611,7 @@ mod tests {
 
     #[test]
     fn different_contexts_produce_different_ciphertext() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let a = encrypt_with_context(&key, "context-a", "same").unwrap();
         let b = encrypt_with_context(&key, "context-b", "same").unwrap();
         assert_ne!(a, b, "different contexts must produce different ciphertext");
@@ -576,7 +619,7 @@ mod tests {
 
     #[test]
     fn context_isolation_decrypt_fails_cross_context() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted = encrypt_with_context(&key, "context-a", "secret").unwrap();
         assert!(
             decrypt_with_context(&key, "context-b", &encrypted).is_err(),
@@ -586,7 +629,7 @@ mod tests {
 
     #[test]
     fn empty_plaintext_encrypts_and_decrypts() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted = encrypt(&key, "").unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
         assert_eq!(decrypted, "", "empty plaintext must roundtrip correctly");
@@ -594,7 +637,7 @@ mod tests {
 
     #[test]
     fn unicode_plaintext_roundtrip() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let original = "รหัสผ่านภาษาไทย 🔐";
         let encrypted = encrypt(&key, original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
@@ -623,7 +666,7 @@ mod tests {
 
     #[test]
     fn master_key_debug_does_not_leak() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let debug = format!("{:?}", key);
         assert_eq!(
             debug, "MasterKey(***)",
@@ -633,7 +676,7 @@ mod tests {
 
     #[test]
     fn master_key_into_bytes() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let bytes = *key.as_bytes();
         let key2 = MasterKey::from_bytes(bytes);
         let encrypted = encrypt(&key2, "test").unwrap();
@@ -643,7 +686,7 @@ mod tests {
 
     #[test]
     fn long_plaintext_roundtrip() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let original = "a".repeat(10_000);
         let encrypted = encrypt(&key, &original).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
@@ -683,7 +726,7 @@ mod tests {
 
     #[test]
     fn version_byte_in_ciphertext() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted = encrypt(&key, "test").unwrap();
         let packed = Encoding::Standard.decode(&encrypted).unwrap();
         assert_eq!(packed[0], VERSION, "first byte must be version");
@@ -691,7 +734,7 @@ mod tests {
 
     #[test]
     fn unsupported_version_fails() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted = encrypt(&key, "test").unwrap();
         let mut packed = Encoding::Standard.decode(&encrypted).unwrap();
         packed[0] = 0xFF;
@@ -701,7 +744,7 @@ mod tests {
 
     #[test]
     fn binary_plaintext_roundtrip() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let original: Vec<u8> = (0..=255).cycle().take(1000).collect();
         let packed = encrypt_bytes_with_context(&key, "binary", &original).unwrap();
         let decrypted = decrypt_bytes_with_context(&key, "binary", &packed).unwrap();
@@ -713,7 +756,7 @@ mod tests {
 
     #[test]
     fn url_safe_no_pad_encoding() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let packed = encrypt_bytes_with_context(&key, "test", b"hello").unwrap();
         let encoded = Encoding::UrlSafeNoPad.encode(&packed);
         assert!(
@@ -728,7 +771,7 @@ mod tests {
 
     #[test]
     fn encrypt_with_encoding_standard_roundtrip() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted = encrypt_with_encoding(&key, "ctx", "secret", Encoding::Standard).unwrap();
         let decrypted = decrypt_with_encoding(&key, "ctx", &encrypted, Encoding::Standard).unwrap();
         assert_eq!(decrypted, "secret", "Standard encoding roundtrip must work");
@@ -736,7 +779,7 @@ mod tests {
 
     #[test]
     fn encrypt_with_encoding_url_safe_roundtrip() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted =
             encrypt_with_encoding(&key, "ctx", "secret", Encoding::UrlSafeNoPad).unwrap();
         let decrypted =
@@ -746,7 +789,7 @@ mod tests {
 
     #[test]
     fn encoding_mismatch_fails() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let encrypted =
             encrypt_with_encoding(&key, "ctx", "secret", Encoding::UrlSafeNoPad).unwrap();
         let result = decrypt_with_encoding(&key, "ctx", &encrypted, Encoding::Standard);
@@ -755,7 +798,7 @@ mod tests {
 
     #[test]
     fn encoding_produces_different_base64() {
-        let key = generate_master_key();
+        let key = generate_master_key().unwrap();
         let packed = encrypt_bytes_with_context(&key, "ctx", b"test-data>?>").unwrap();
         let std = Encoding::Standard.encode(&packed);
         let url = Encoding::UrlSafeNoPad.encode(&packed);
