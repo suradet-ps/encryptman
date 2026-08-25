@@ -381,9 +381,11 @@ breaking API change.
 Roundtrips are the *minimum* bar. This phase pins the crate to published
 standards and hostile inputs.
 
+**Status: COMPLETE -- ships in 0.3.1 (non-breaking; no API changes)**
+
 ### Known-answer tests (KATs)
 
-- [ ] **Embed NIST AES-256-GCM vectors** as fixtures (NIST CAVP GCMVS
+- [x] **Embed NIST AES-256-GCM vectors** as fixtures (NIST CAVP GCMVS
   test set; SP 800-38D Appendix C examples are the canonical small
   set). Add `tests/kat.rs` that:
   - Encrypts NIST plaintexts with fixed key + nonce and asserts the
@@ -393,38 +395,54 @@ standards and hostile inputs.
     asserts the plaintext comes back.
   - Asserts the tag bytes are 16 bytes and the tag is checked (flip
     one tag byte -> `DecryptionFailed`).
-- [ ] **Format-layout KAT**: assert the packed layout byte-for-byte for
+  *Implementation note: 18 vectors from the official NIST CAVP GCMVS
+  files (`gcmEncryptExtIV256.rsp` / `gcmDecrypt256.rsp`, CAVS 14.0,
+  Keylen=256 / IVlen=96 / Taglen=128), including NIST's own 6 `FAIL`
+  (tag-mismatch) vectors. Every vector was cross-verified with OpenSSL
+  3 (via Node's `crypto` module) before being pinned -- no hex was
+  typed from memory. Because the crate derives the AES key via HKDF,
+  the raw-key NIST vectors pin the primitive layer, and a separate
+  OpenSSL-computed fixture (HKDF + AES-256-GCM + pack) pins the format
+  layer; the test comments explain this honestly. (The SP 800-38D
+  Appendix C tables are embedded graphics in the NIST PDF and could not
+  be machine-extracted; GCMVS is the canonical machine-readable NIST
+  source and is cited as such.)*
+- [x] **Format-layout KAT**: assert the packed layout byte-for-byte for
   a hand-computed example (version byte, nonce position, tag position)
   so a future refactor cannot silently reorder the format.
 
 ### Property tests
 
-- [ ] **`proptest`**: roundtrip for arbitrary byte strings up to 64 KiB;
+- [x] **`proptest`**: roundtrip for arbitrary byte strings up to 64 KiB;
   ciphertext uniqueness across calls; context isolation (encrypt under
   A, decrypt under B always fails); encoding roundtrips (Standard and
   UrlSafeNoPad cross-decode); every-byte-tamper-fails (flip each byte of
   a small ciphertext in turn; each flip must fail decryption).
-- [ ] **Key roundtrip properties**: `TryFrom<&[u8]>` then `as_bytes`
+- [x] **Key roundtrip properties**: `TryFrom<&[u8]>` then `as_bytes`
   roundtrip for 32-byte inputs; rejection of all non-32 lengths.
 
 ### Fuzzing
 
-- [ ] **`cargo-fuzz` target `decrypt`**: feed arbitrary bytes through
+- [x] **`cargo-fuzz` target `decrypt`**: feed arbitrary bytes through
   `decrypt` / `decrypt_with_context` / `decrypt_with_encoding`; invariant:
   no panic, no hang, no allocation blowup. 128-byte max input is plenty
   (format is `1 + 12 + 16 + payload`).
-- [ ] **Fuzz target `encoding`**: arbitrary base64 strings through
+- [x] **Fuzz target `encoding`**: arbitrary base64 strings through
   `Encoding::decode`; no panic, and `decode(encode(x)) == x` for valid
   inputs.
-- [ ] **Fuzz in CI**: a nightly-only job running each target 60 s; the
+- [x] **Fuzz in CI**: a nightly-only job running each target 60 s; the
   fuzz corpus is committed so regressions are caught.
 
 ### Memory-safety CI
 
-- [ ] **Miri job** (`cargo miri test` on the crate) -- this is exactly
-  the tool for the zeroize claims: it catches uninitialized/leaked reads
-  that would break `Zeroize`. Run on nightly in CI.
-- [ ] **MSRV job**: CI compiles and tests on `rustc 1.85` exactly,
+- [x] **Miri job** (`cargo miri test --lib --test kat` on nightly) --
+  this is exactly the tool for the zeroize claims: it catches
+  uninitialized/leaked reads that would break `Zeroize`. Verified
+  locally: 27 unit tests + 11 KATs green under Miri with isolation
+  enabled. *The proptests are deliberately excluded: proptest's own
+  test machinery is pathologically slow under the Miri interpreter
+  (minutes per trivial property), independent of this crate's code.*
+- [x] **MSRV job**: CI compiles and tests on `rustc 1.85` exactly,
   failing if the declared `rust-version` regresses.
 
 **Acceptance:** KAT suite passes against published NIST vectors; proptest

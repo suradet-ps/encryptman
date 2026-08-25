@@ -1,6 +1,6 @@
 [package]
 name = "encryptman"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.85"
 description = "AES-256-GCM encryption for application settings with HKDF key derivation"
@@ -25,3 +25,5 @@ thiserror = "2"
 zeroize = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
+aes-gcm = { version = "0.11.0", features = ["zeroize"] }
+proptest = "1"

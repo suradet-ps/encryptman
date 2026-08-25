@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Known-answer tests** (`tests/kat.rs`): the primitive is pinned to the
+  official NIST CAVP GCMVS test set (`gcmEncryptExtIV256.rsp` /
+  `gcmDecrypt256.rsp`, CAVS 14.0) -- 6 encrypt vectors, 6 decrypt vectors,
+  and 6 official tag-mismatch (`FAIL`) vectors. Every vector was
+  cross-verified with OpenSSL 3 (via Node's `crypto` module) before being
+  committed. The crate's own format (version byte, nonce/tag positions,
+  HKDF wiring) is pinned against an independently computed fixture
+  (OpenSSL HKDF + AES-256-GCM) including empty-plaintext, layout, version
+  byte, wrong-key/wrong-context, and tamper-rejection checks.
+- **Property tests** (`tests/proptests.rs`): 13 properties, 1000 cases
+  each in CI -- roundtrips (arbitrary bytes up to 64 KiB, arbitrary
+  strings, both encodings), ciphertext uniqueness, context isolation,
+  wrong-key rejection, every-byte-tamper-fails, URL-safe charset,
+  exact 32-byte key handling.
+- **Fuzzing** (`fuzz/`): `decrypt` and `encoding` targets with committed
+  corpus seeds; a nightly CI job runs each target for 60 s and fails on
+  any crash artifact.
+- **Miri CI job**: `cargo miri test --lib` and `--test kat` on nightly --
+  the zeroize and memory-safety claims are now checked, not asserted.
+- **MSRV CI job**: `cargo test --all-features` on rustc 1.85.0 exactly;
+  a regression in the declared `rust-version` now fails CI.
+
 ## [0.3.0] - 2026-08-14
 
 ### Changed

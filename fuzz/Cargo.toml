@@ -1,0 +1,26 @@
+[package]
+name = "encryptman-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+encryptman = { path = ".." }
+
+[[bin]]
+name = "decrypt"
+path = "fuzz_targets/decrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "encoding"
+path = "fuzz_targets/encoding.rs"
+test = false
+doc = false
+bench = false

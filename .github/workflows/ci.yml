@@ -78,3 +78,63 @@ jobs:
           toolchain: stable
       - uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24 # v1.2.7
         name: Audit Rust Dependencies
+
+  msrv:
+    name: MSRV (1.85.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # 1.85.0
+        with:
+          toolchain: 1.85.0
+      - run: cargo test --all-features
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # nightly
+        with:
+          toolchain: nightly
+          components: miri
+      - name: Miri setup
+        run: cargo miri setup
+      # proptests are deliberately excluded from Miri: proptest's test
+      # machinery itself runs orders of magnitude slower under the Miri
+      # interpreter (minutes per trivial property). The zeroize/UB-relevant
+      # paths are covered by the lib tests and the KATs, which include the
+      # full format, tamper, and key-handling code paths.
+      - name: Miri lib tests
+        run: cargo miri test --lib
+      - name: Miri KATs
+        run: cargo miri test --test kat
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # nightly
+        with:
+          toolchain: nightly
+      - name: Install cargo-fuzz (pinned)
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Fuzz decrypt (60s)
+        working-directory: fuzz
+        run: cargo fuzz run decrypt -- -max_total_time=60
+      - name: Fuzz encoding (60s)
+        working-directory: fuzz
+        run: cargo fuzz run encoding -- -max_total_time=60
+      - name: Fail on any crash artifact
+        run: |
+          if [ -n "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+            echo "::error::crash artifacts found in fuzz/artifacts"
+            exit 1
+          fi
