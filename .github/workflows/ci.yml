@@ -82,6 +82,11 @@ jobs:
   msrv:
     name: MSRV (1.85.0)
     runs-on: ubuntu-latest
+    # RUSTUP_TOOLCHAIN overrides the repo's rust-toolchain.toml (channel =
+    # "stable"); without it `cargo test` would silently run stable and the
+    # MSRV check would be a false pass.
+    env:
+      RUSTUP_TOOLCHAIN: 1.85.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,6 +99,8 @@ jobs:
   miri:
     name: Miri
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -117,6 +124,8 @@ jobs:
   fuzz:
     name: Fuzz
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
