@@ -143,7 +143,10 @@ jobs:
         run: cargo fuzz run encoding -- -max_total_time=60
       - name: Fail on any crash artifact
         run: |
-          if [ -n "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+          # cargo-fuzz creates empty artifacts/<target>/ directories on
+          # every run; only actual crash files are failures.
+          if find fuzz/artifacts -type f | grep -q .; then
             echo "::error::crash artifacts found in fuzz/artifacts"
+            find fuzz/artifacts -type f
             exit 1
           fi
