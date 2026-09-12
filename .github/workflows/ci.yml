@@ -28,10 +28,11 @@ jobs:
       - name: Enforce no panics in library code
         run: |
           awk '
+            FNR == 1 { in_test = 0 }
             /^[[:space:]]*\/\// { next }
             /^#\[cfg\(test\)\]/ { in_test = 1 }
             in_test && /^}/ { in_test = 0 }
-            !in_test && /expect\(|unwrap\(|panic!/ { print "line " FNR ": " $0; bad = 1 }
+            !in_test && /expect\(|unwrap\(|panic!/ { print FILENAME ":" FNR ": " $0; bad = 1 }
             END {
               if (bad) {
                 print "FAIL: unwrap()/expect()/panic! found in non-test, non-doc code" > "/dev/stderr"
@@ -39,7 +40,21 @@ jobs:
               }
               print "OK: no unwrap()/expect()/panic! in library code"
             }
-          ' src/lib.rs
+          ' src/*.rs
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
+        with:
+          toolchain: stable
+      - run: cargo doc --no-deps --all-features
 
   machete:
     name: Dead dependencies
@@ -65,6 +80,19 @@ jobs:
         with:
           toolchain: stable
       - run: cargo test --all-features
+
+  semver:
+    name: Semver checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
+        with:
+          toolchain: stable
+      - run: cargo install cargo-semver-checks --version 0.50.0 --locked
+      - run: cargo semver-checks check-release
 
   audit:
     name: Audit

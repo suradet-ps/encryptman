@@ -3,14 +3,17 @@
 //! These complement the KATs (which pin the crate to published standards)
 //! by proving the API-level promises over the whole input space: any
 //! plaintext roundtrips, any tampering fails, contexts stay isolated,
-//! encodings are reversible, and key handling is exact.
+//! AAD stays bound, key rotation preserves plaintext, encodings are
+//! reversible, and key handling is exact.
 //!
 //! Each property runs 1000 cases in CI (the `proptest_config!` below), per
 //! the Phase 2 acceptance criteria.
 
 use encryptman::{
-    Encoding, MasterKey, decrypt_bytes_with_context, decrypt_with_context, decrypt_with_encoding,
-    encrypt_bytes_with_context, encrypt_with_context, encrypt_with_encoding,
+    Encoding, MasterKey, decrypt_bytes_with_aad, decrypt_bytes_with_context, decrypt_with_aad,
+    decrypt_with_context, decrypt_with_encoding, encrypt_bytes_with_aad,
+    encrypt_bytes_with_context, encrypt_with_aad, encrypt_with_context, encrypt_with_encoding,
+    reencrypt,
 };
 use proptest::prelude::*;
 
@@ -249,5 +252,120 @@ proptest! {
         let encoded = encrypt_with_encoding(&key, &context, &plaintext, encoding).expect("encryption must not fail");
         let recovered = decrypt_with_encoding(&key, &context, &encoded, encoding).expect("decryption must not fail");
         prop_assert_eq!(&recovered, &plaintext);
+    }
+}
+
+// AAD roundtrips for arbitrary bytes: the same (context, aad) pair always
+// recovers the plaintext.
+proptest! {
+    #![proptest_config(config())]
+    #[test]
+    fn aad_roundtrip_arbitrary(
+        key in any_key(),
+        context in arbitrary_context(),
+        plaintext in arbitrary_bytes(),
+        aad in arbitrary_bytes(),
+    ) {
+        let ciphertext = encrypt_bytes_with_aad(&key, &context, &plaintext, &aad).expect("encryption must not fail");
+        let recovered = decrypt_bytes_with_aad(&key, &context, &ciphertext, &aad).expect("decryption must not fail");
+        prop_assert_eq!(&recovered, &plaintext);
+    }
+}
+
+// The string AAD APIs must roundtrip arbitrary strings and reject a
+// mismatched record binding.
+proptest! {
+    #![proptest_config(config())]
+    #[test]
+    fn aad_string_api_roundtrips(
+        key in any_key(),
+        context in arbitrary_context(),
+        plaintext in "\\PC*",
+    ) {
+        let aad = b"record:42";
+        let encrypted = encrypt_with_aad(&key, &context, &plaintext, aad).expect("encryption must not fail");
+        let recovered = decrypt_with_aad(&key, &context, &encrypted, aad).expect("decryption must not fail");
+        prop_assert_eq!(&recovered, &plaintext);
+        prop_assert!(decrypt_with_aad(&key, &context, &encrypted, b"record:43").is_err());
+    }
+}
+
+// A ciphertext bound to AAD A must never decrypt under AAD B (including
+// A = empty vs. B = non-empty), and vice versa -- only an error, never
+// plaintext.
+proptest! {
+    #![proptest_config(config())]
+    #[test]
+    fn wrong_aad_never_decrypts(
+        key in any_key(),
+        context in arbitrary_context(),
+        plaintext in short_bytes(),
+        aad_a in short_bytes(),
+        aad_b in short_bytes(),
+    ) {
+        let ciphertext = encrypt_bytes_with_aad(&key, &context, &plaintext, &aad_a).expect("encryption must not fail");
+        if aad_a == aad_b {
+            let recovered = decrypt_bytes_with_aad(&key, &context, &ciphertext, &aad_a).expect("decryption must not fail");
+            prop_assert_eq!(&recovered, &plaintext);
+        } else {
+            let result = decrypt_bytes_with_aad(&key, &context, &ciphertext, &aad_b);
+            prop_assert!(result.is_err(), "AAD B must not decrypt an AAD-A ciphertext");
+        }
+    }
+}
+
+// The empty-AAD byte APIs must be exactly the non-AAD byte APIs: a
+// ciphertext from one must decrypt through the other.
+proptest! {
+    #![proptest_config(config())]
+    #[test]
+    fn empty_aad_is_the_plain_api(
+        key in any_key(),
+        context in arbitrary_context(),
+        plaintext in short_bytes(),
+    ) {
+        let plain = encrypt_bytes_with_context(&key, &context, &plaintext).expect("encryption must not fail");
+        let via_aad = decrypt_bytes_with_aad(&key, &context, &plain, &[]).expect("decryption must not fail");
+        prop_assert_eq!(&via_aad, &plaintext);
+
+        let with_aad = encrypt_bytes_with_aad(&key, &context, &plaintext, &[]).expect("encryption must not fail");
+        let via_plain = decrypt_bytes_with_context(&key, &context, &with_aad).expect("decryption must not fail");
+        prop_assert_eq!(&via_plain, &plaintext);
+    }
+}
+
+// reencrypt must move a ciphertext from the old key to the new key without
+// changing the plaintext, and the old key must no longer open it.
+proptest! {
+    #![proptest_config(config())]
+    #[test]
+    fn reencrypt_rotates_to_the_new_key(
+        old_key in any_key(),
+        new_key in any_key(),
+        context in arbitrary_context(),
+        plaintext in "\\PC*",
+    ) {
+        let before = encrypt_with_context(&old_key, &context, &plaintext).expect("encryption must not fail");
+        let after = reencrypt(&old_key, &new_key, &context, &before).expect("reencryption must not fail");
+
+        let recovered = decrypt_with_context(&new_key, &context, &after).expect("new key must decrypt");
+        prop_assert_eq!(&recovered, &plaintext);
+        prop_assert_ne!(&after, &before, "rotation must produce fresh ciphertext");
+        prop_assert!(
+            decrypt_with_context(&old_key, &context, &after).is_err(),
+            "old key must not decrypt the rotated ciphertext"
+        );
+    }
+}
+
+// The canonical encoding names must parse back to the same encoding.
+proptest! {
+    #![proptest_config(config())]
+    #[test]
+    fn encoding_names_roundtrip(
+        encoding in prop_oneof![Just(Encoding::Standard), Just(Encoding::UrlSafeNoPad)],
+    ) {
+        let parsed = encoding.as_str().parse::<Encoding>().expect("canonical name must parse");
+        prop_assert_eq!(parsed, encoding);
     }
 }

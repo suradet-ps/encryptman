@@ -13,6 +13,8 @@ AES-256-GCM encryption for application settings with HKDF key derivation.
 - **Random nonces** — encrypting the same plaintext twice yields distinct ciphertexts
 - **Zeroize on drop** — master key memory is zeroed out automatically on drop
 - **Context isolation** — prevents cross-domain ciphertext substitution attacks
+- **AAD binding** — optionally bind a ciphertext to the record it belongs to (user id, field name)
+- **Key rotation** — `reencrypt()` moves a ciphertext to a new master key without exposing plaintext
 
 ## Installation
 
@@ -20,7 +22,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-encryptman = "0.3.0"
+encryptman = "0.4.0"
 ```
 
 ## Quick Start
@@ -82,6 +84,37 @@ let encrypted = encrypt_with_encoding(&key, "jwt", "token", Encoding::UrlSafeNoP
 let decrypted = decrypt_with_encoding(&key, "jwt", &encrypted, Encoding::UrlSafeNoPad)?;
 
 assert_eq!(decrypted, "token");
+```
+
+### Binding a ciphertext to a record (AAD)
+
+```rust
+use encryptman::{encrypt_with_aad, decrypt_with_aad, generate_master_key};
+
+let key = generate_master_key()?;
+
+// AAD is public (a user id, a field name) and is authenticated, not stored.
+let encrypted = encrypt_with_aad(&key, "settings", "s3cret", b"user:42")?;
+
+// The same AAD is required to decrypt; a different record fails.
+let decrypted = decrypt_with_aad(&key, "settings", &encrypted, b"user:42")?;
+assert_eq!(decrypted, "s3cret");
+assert!(decrypt_with_aad(&key, "settings", &encrypted, b"user:43").is_err());
+```
+
+### Rotating the master key
+
+```rust
+use encryptman::{encrypt_with_context, reencrypt, decrypt_with_context, MasterKey};
+
+let old_key = MasterKey::generate()?;
+let new_key = MasterKey::generate()?;
+
+let before = encrypt_with_context(&old_key, "database", "postgres://...")?;
+
+// The intermediate plaintext is zeroized inside reencrypt().
+let after = reencrypt(&old_key, &new_key, "database", &before)?;
+assert_eq!(decrypt_with_context(&new_key, "database", &after)?, "postgres://...");
 ```
 
 ### Storing and restoring the master key

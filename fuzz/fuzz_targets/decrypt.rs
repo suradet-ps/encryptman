@@ -1,8 +1,8 @@
 #![no_main]
 
 use encryptman::{
-    decrypt, decrypt_bytes_with_context, decrypt_with_context, decrypt_with_encoding, Encoding,
-    MasterKey,
+    decrypt, decrypt_bytes_with_aad, decrypt_bytes_with_context, decrypt_with_aad,
+    decrypt_with_context, decrypt_with_encoding, Encoding, MasterKey,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -24,4 +24,6 @@ fuzz_target!(|data: &[u8]| {
     let _ = decrypt_with_encoding(&key, "fuzz", &input, Encoding::Standard);
     let _ = decrypt_with_encoding(&key, "fuzz", &input, Encoding::UrlSafeNoPad);
     let _ = decrypt_bytes_with_context(&key, "fuzz", data);
+    let _ = decrypt_with_aad(&key, "fuzz", &input, data);
+    let _ = decrypt_bytes_with_aad(&key, "fuzz", data, data);
 });
