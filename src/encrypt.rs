@@ -1,6 +1,6 @@
 //! Encryption and decryption entry points.
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -105,6 +105,74 @@ pub fn decrypt_with_context(
     decrypt_with_encoding(master_key, context, encoded, Encoding::Standard)
 }
 
+/// Encrypt a plaintext string with a custom context and associated data.
+///
+/// Like [`encrypt_with_context`], but binds the ciphertext to the additional
+/// authenticated data (AAD) `aad`. The AAD is authenticated by AES-GCM but
+/// **not encrypted and not stored**: it is public, and its job is to bind a
+/// ciphertext to its record (a user id, a settings key, a file path) so that
+/// a ciphertext cannot be moved to a different record undetected.
+///
+/// The same `aad` must be supplied to [`decrypt_with_aad`]. An empty `aad`
+/// is equivalent to the plain [`encrypt_with_context`] API, and ciphertexts
+/// are interchangeable between the two.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to encrypt with.
+/// * `context` - An application-specific context string for key derivation.
+/// * `plaintext` - The string to encrypt.
+/// * `aad` - Additional authenticated data; public, not secret.
+///
+/// # Examples
+///
+/// ```rust
+/// use encryptman::{encrypt_with_aad, decrypt_with_aad, generate_master_key};
+///
+/// let key = generate_master_key().unwrap();
+///
+/// // Bind the ciphertext to the record it belongs to.
+/// let encrypted = encrypt_with_aad(&key, "settings", "s3cret", b"user:42").unwrap();
+///
+/// // Decryption requires the same record binding.
+/// let decrypted = decrypt_with_aad(&key, "settings", &encrypted, b"user:42").unwrap();
+/// assert_eq!(decrypted, "s3cret");
+///
+/// // A different record cannot decrypt it.
+/// assert!(decrypt_with_aad(&key, "settings", &encrypted, b"user:43").is_err());
+/// ```
+pub fn encrypt_with_aad(
+    master_key: &MasterKey,
+    context: &str,
+    plaintext: &str,
+    aad: &[u8],
+) -> Result<String, CryptoError> {
+    encrypt_bytes_with_aad(master_key, context, plaintext.as_bytes(), aad)
+        .map(|bytes| Encoding::Standard.encode(&bytes))
+}
+
+/// Decrypt a ciphertext string with a custom context and associated data.
+///
+/// The `context` must match the context used during encryption and the `aad`
+/// must match the additional authenticated data used during encryption.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to decrypt with.
+/// * `context` - The context string used during encryption.
+/// * `encoded` - The base64-encoded ciphertext to decrypt.
+/// * `aad` - The additional authenticated data used during encryption.
+pub fn decrypt_with_aad(
+    master_key: &MasterKey,
+    context: &str,
+    encoded: &str,
+    aad: &[u8],
+) -> Result<String, CryptoError> {
+    let packed = Encoding::Standard.decode(encoded)?;
+    let plaintext = decrypt_bytes_with_aad(master_key, context, &packed, aad)?;
+    Ok(String::from_utf8(plaintext)?)
+}
+
 /// Encrypt a plaintext string with a custom context and encoding.
 ///
 /// The context is used in HKDF key derivation (`info` parameter) to derive a
@@ -163,6 +231,8 @@ pub fn decrypt_with_encoding(
 /// Returns the raw ciphertext bytes: `version || nonce || ciphertext`.
 /// This is useful when you need to store or transmit binary data.
 ///
+/// This function is the empty-AAD shorthand for [`encrypt_bytes_with_aad`].
+///
 /// # Arguments
 ///
 /// * `master_key` - The master key to encrypt with.
@@ -173,6 +243,27 @@ pub fn encrypt_bytes_with_context(
     context: &str,
     plaintext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
+    encrypt_bytes_with_aad(master_key, context, plaintext, &[])
+}
+
+/// Encrypt arbitrary bytes with a custom context and associated data.
+///
+/// Returns the raw ciphertext bytes: `version || nonce || ciphertext`. The
+/// `aad` is authenticated by AES-GCM but not encrypted and not stored in the
+/// output; the same `aad` is required at decryption time.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to encrypt with.
+/// * `context` - An application-specific context string for key derivation.
+/// * `plaintext` - The bytes to encrypt.
+/// * `aad` - Additional authenticated data; public, not secret.
+pub fn encrypt_bytes_with_aad(
+    master_key: &MasterKey,
+    context: &str,
+    plaintext: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
     let key = derive_key(master_key, context)?;
     let cipher = Aes256Gcm::new(&key);
 
@@ -182,7 +273,13 @@ pub fn encrypt_bytes_with_context(
         Nonce::try_from(nonce_bytes.as_slice()).map_err(|_| CryptoError::EncryptionFailed)?;
 
     let ciphertext = cipher
-        .encrypt(&nonce, plaintext)
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .map_err(|_| CryptoError::EncryptionFailed)?;
 
     Ok(pack(&nonce_bytes, &ciphertext))
@@ -192,6 +289,8 @@ pub fn encrypt_bytes_with_context(
 ///
 /// Expects the input to be `version || nonce || ciphertext` (raw bytes, not
 /// base64-encoded).
+///
+/// This function is the empty-AAD shorthand for [`decrypt_bytes_with_aad`].
 ///
 /// # Arguments
 ///
@@ -203,6 +302,26 @@ pub fn decrypt_bytes_with_context(
     context: &str,
     packed: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
+    decrypt_bytes_with_aad(master_key, context, packed, &[])
+}
+
+/// Decrypt arbitrary bytes with a custom context and associated data.
+///
+/// Expects the input to be `version || nonce || ciphertext` (raw bytes, not
+/// base64-encoded) and the `aad` that was supplied during encryption.
+///
+/// # Arguments
+///
+/// * `master_key` - The master key to decrypt with.
+/// * `context` - The context string used during encryption.
+/// * `packed` - The raw ciphertext bytes to decrypt.
+/// * `aad` - The additional authenticated data used during encryption.
+pub fn decrypt_bytes_with_aad(
+    master_key: &MasterKey,
+    context: &str,
+    packed: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
     let (nonce_bytes, ciphertext) = unpack(packed)?;
 
     let key = derive_key(master_key, context)?;
@@ -212,7 +331,13 @@ pub fn decrypt_bytes_with_context(
         Nonce::try_from(nonce_bytes.as_slice()).map_err(|_| CryptoError::DecryptionFailed)?;
 
     cipher
-        .decrypt(&nonce, ciphertext)
+        .decrypt(
+            &nonce,
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
         .map_err(|_| CryptoError::DecryptionFailed)
 }
 
@@ -306,6 +431,75 @@ mod tests {
         assert!(
             decrypt_with_context(&key, "context-b", &encrypted).is_err(),
             "cross-context decryption must fail"
+        );
+    }
+
+    #[test]
+    fn aad_roundtrip() {
+        let key = generate_master_key().unwrap();
+        let aad = b"user:42";
+
+        let encrypted = encrypt_with_aad(&key, "settings", "secret", aad).unwrap();
+        let decrypted = decrypt_with_aad(&key, "settings", &encrypted, aad).unwrap();
+        assert_eq!(decrypted, "secret", "AAD string roundtrip must work");
+
+        let packed = encrypt_bytes_with_aad(&key, "settings", b"\x00\xffbinary", aad).unwrap();
+        let recovered = decrypt_bytes_with_aad(&key, "settings", &packed, aad).unwrap();
+        assert_eq!(recovered, b"\x00\xffbinary", "AAD byte roundtrip must work");
+    }
+
+    #[test]
+    fn wrong_aad_fails_with_generic_error() {
+        let key = generate_master_key().unwrap();
+        let encrypted = encrypt_with_aad(&key, "ctx", "secret", b"record-a").unwrap();
+        let result = decrypt_with_aad(&key, "ctx", &encrypted, b"record-b");
+        assert!(
+            matches!(result, Err(CryptoError::DecryptionFailed)),
+            "wrong AAD must fail with the generic error, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn aad_isolation_from_empty_aad() {
+        let key = generate_master_key().unwrap();
+
+        // AAD-bound ciphertext must not decrypt without the AAD.
+        let bound = encrypt_with_aad(&key, "ctx", "secret", b"record").unwrap();
+        assert!(
+            decrypt_with_context(&key, "ctx", &bound).is_err(),
+            "AAD-bound ciphertext must not decrypt as unbound"
+        );
+
+        // An unbound ciphertext must not decrypt with an AAD.
+        let unbound = encrypt_with_context(&key, "ctx", "secret").unwrap();
+        assert!(
+            decrypt_with_aad(&key, "ctx", &unbound, b"record").is_err(),
+            "unbound ciphertext must not decrypt as AAD-bound"
+        );
+    }
+
+    #[test]
+    fn empty_aad_is_interchangeable_with_plain_api() {
+        let key = generate_master_key().unwrap();
+
+        let via_context = encrypt_bytes_with_context(&key, "ctx", b"data").unwrap();
+        let via_empty_aad = decrypt_bytes_with_aad(&key, "ctx", &via_context, &[]).unwrap();
+        assert_eq!(via_empty_aad, b"data");
+
+        let via_aad = encrypt_bytes_with_aad(&key, "ctx", b"data", &[]).unwrap();
+        let via_plain = decrypt_bytes_with_context(&key, "ctx", &via_aad).unwrap();
+        assert_eq!(via_plain, b"data");
+    }
+
+    #[test]
+    fn aad_is_not_stored_in_ciphertext() {
+        let key = generate_master_key().unwrap();
+        let small = encrypt_bytes_with_aad(&key, "ctx", b"data", b"a").unwrap();
+        let large = encrypt_bytes_with_aad(&key, "ctx", b"data", &[0x42; 1024]).unwrap();
+        assert_eq!(
+            small.len(),
+            large.len(),
+            "AAD must be authenticated but not embedded in the ciphertext"
         );
     }
 
