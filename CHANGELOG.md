@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AAD (associated data) support**: `encrypt_with_aad()` /
+  `decrypt_with_aad()` and the raw-byte variants `encrypt_bytes_with_aad()`
+  / `decrypt_bytes_with_aad()` bind a ciphertext to a public record
+  identifier (a user id, a settings key, a field name). AES-GCM
+  authenticates the AAD but never encrypts or stores it, so the wire
+  format is unchanged; an empty AAD is byte-for-byte the existing API.
+- **`reencrypt()` key-rotation helper**: decrypts a ciphertext under the
+  old key, re-encrypts it under the new key, and zeroizes the intermediate
+  plaintext before returning. Context and Standard encoding are preserved;
+  AAD-bound ciphertexts are documented as out of scope for this helper.
+- **Encoding names for settings serialization**: `impl FromStr` for
+  `Encoding` parses the canonical names `"standard"` and
+  `"url_safe_no_pad"`, and `Encoding::as_str()` returns them. Unknown
+  names return the new `CryptoError::InvalidEncoding`.
+- **Module split** (internal only): `src/lib.rs` is now a thin crate root
+  over `src/{key,encoding,error,format,encrypt}.rs`, with `format.rs` as
+  the single source of truth for the packed layout. No public path changed.
+- **CI**: a `cargo doc --no-deps --all-features` job with
+  `RUSTDOCFLAGS="-D warnings"`, and a `cargo semver-checks` job checked
+  against the published baseline.
+- **Tests**: seven new property tests (AAD roundtrip and binding,
+  empty-AAD equivalence, key rotation, encoding names), unit tests for
+  every new API, and AAD paths in the `decrypt` fuzz target.
+
+### Changed
+
+- **BREAKING**: `CryptoError` gains the `InvalidEncoding` variant; an
+  exhaustive `match` over `CryptoError` must now cover it.
+- `Encoding::encode()` and `Encoding::as_str()` are `#[must_use]`.
+- The CI panic gate scans every file under `src/` instead of only
+  `src/lib.rs`.
+
+### Security
+
+- `reencrypt()` zeroizes the intermediate plaintext, so rotating a master
+  key never leaves the secret in caller-visible memory.
+- AAD binding is pinned by property tests: a ciphertext bound to one
+  record cannot be decrypted as another, and the empty-AAD path is proven
+  equivalent to the existing API.
+
 ## [0.3.1] - 2026-08-25
 
 ### Added
