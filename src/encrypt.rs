@@ -341,6 +341,62 @@ pub fn decrypt_bytes_with_aad(
         .map_err(|_| CryptoError::DecryptionFailed)
 }
 
+/// Re-encrypt a ciphertext under a new master key.
+///
+/// Decrypts `encoded` with `old_key`, re-encrypts the plaintext with
+/// `new_key`, and zeroizes the intermediate plaintext before returning. This
+/// is the building block for master-key rotation: the caller never has to
+/// hold the plaintext in a variable of its own.
+///
+/// The `context` (and the [`Encoding::Standard`] encoding) is preserved; the
+/// operation does not change which context a ciphertext belongs to.
+///
+/// Ciphertexts bound with AAD are not supported here, because `reencrypt`
+/// has no way to know the AAD; decrypt and re-encrypt those with
+/// [`decrypt_with_aad`] and [`encrypt_with_aad`] instead.
+///
+/// # Arguments
+///
+/// * `old_key` - The master key that currently protects `encoded`.
+/// * `new_key` - The master key to protect the returned ciphertext with.
+/// * `context` - The context the ciphertext was encrypted under.
+/// * `encoded` - The base64-encoded ciphertext to rotate.
+///
+/// # Errors
+///
+/// Returns an error if `encoded` is not a valid ciphertext under `old_key`
+/// and `context`, or if re-encryption fails.
+///
+/// # Examples
+///
+/// ```rust
+/// use encryptman::{encrypt_with_context, decrypt_with_context, reencrypt, generate_master_key};
+///
+/// let old_key = generate_master_key().unwrap();
+/// let new_key = generate_master_key().unwrap();
+///
+/// let before = encrypt_with_context(&old_key, "database", "postgres://...").unwrap();
+/// let after = reencrypt(&old_key, &new_key, "database", &before).unwrap();
+///
+/// // The new key opens it; the old key no longer does.
+/// assert_eq!(
+///     decrypt_with_context(&new_key, "database", &after).unwrap(),
+///     "postgres://..."
+/// );
+/// assert!(decrypt_with_context(&old_key, "database", &after).is_err());
+/// ```
+pub fn reencrypt(
+    old_key: &MasterKey,
+    new_key: &MasterKey,
+    context: &str,
+    encoded: &str,
+) -> Result<String, CryptoError> {
+    let mut plaintext = decrypt_with_context(old_key, context, encoded)?;
+    let reencrypted = encrypt_with_context(new_key, context, &plaintext);
+    plaintext.zeroize();
+    reencrypted
+}
+
 /// Derive an AES-256 key from a master key using HKDF-SHA256.
 ///
 /// Uses the master key as input keying material (IKM) and the application
@@ -532,6 +588,86 @@ mod tests {
         assert_eq!(
             original, decrypted,
             "long plaintext must roundtrip correctly"
+        );
+    }
+
+    #[test]
+    fn reencrypt_moves_ciphertext_to_new_key() {
+        let old_key = generate_master_key().unwrap();
+        let new_key = generate_master_key().unwrap();
+        let before = encrypt_with_context(&old_key, "db", "postgres://secret").unwrap();
+
+        let after = reencrypt(&old_key, &new_key, "db", &before).unwrap();
+
+        assert_ne!(after, before, "rotation must produce a fresh ciphertext");
+        assert_eq!(
+            decrypt_with_context(&new_key, "db", &after).unwrap(),
+            "postgres://secret",
+            "new key must open the rotated ciphertext"
+        );
+        assert!(
+            decrypt_with_context(&old_key, "db", &after).is_err(),
+            "old key must not open the rotated ciphertext"
+        );
+    }
+
+    #[test]
+    fn reencrypt_wrong_old_key_fails() {
+        let old_key = generate_master_key().unwrap();
+        let new_key = generate_master_key().unwrap();
+        let stranger = generate_master_key().unwrap();
+        let before = encrypt_with_context(&old_key, "db", "secret").unwrap();
+
+        let result = reencrypt(&stranger, &new_key, "db", &before);
+        assert!(result.is_err(), "wrong old key must fail");
+    }
+
+    #[test]
+    fn reencrypt_tampered_ciphertext_fails() {
+        let old_key = generate_master_key().unwrap();
+        let new_key = generate_master_key().unwrap();
+        let before = encrypt_with_context(&old_key, "db", "secret").unwrap();
+
+        let mut packed = Encoding::Standard.decode(&before).unwrap();
+        let last = packed.len() - 1;
+        packed[last] ^= 0x01;
+        let tampered = Encoding::Standard.encode(&packed);
+
+        let result = reencrypt(&old_key, &new_key, "db", &tampered);
+        assert!(
+            matches!(result, Err(CryptoError::DecryptionFailed)),
+            "tampered input must fail before re-encryption, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn reencrypt_keeps_context_and_unicode() {
+        let old_key = generate_master_key().unwrap();
+        let new_key = generate_master_key().unwrap();
+        let plaintext = "รหัสผ่าน 🔐";
+
+        let before = encrypt_with_context(&old_key, "ctx-a", plaintext).unwrap();
+        let after = reencrypt(&old_key, &new_key, "ctx-a", &before).unwrap();
+        assert_eq!(
+            decrypt_with_context(&new_key, "ctx-a", &after).unwrap(),
+            plaintext
+        );
+        assert!(
+            decrypt_with_context(&new_key, "ctx-b", &after).is_err(),
+            "rotation must not change the context"
+        );
+    }
+
+    #[test]
+    fn reencrypt_rejects_aad_bound_ciphertext() {
+        let old_key = generate_master_key().unwrap();
+        let new_key = generate_master_key().unwrap();
+        let bound = encrypt_with_aad(&old_key, "ctx", "secret", b"record").unwrap();
+
+        let result = reencrypt(&old_key, &new_key, "ctx", &bound);
+        assert!(
+            matches!(result, Err(CryptoError::DecryptionFailed)),
+            "AAD-bound ciphertext must not rotate through the AAD-less helper, got {result:?}"
         );
     }
 

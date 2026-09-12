@@ -72,6 +72,7 @@ pub use encrypt::{
     decrypt, decrypt_bytes_with_aad, decrypt_bytes_with_context, decrypt_with_aad,
     decrypt_with_context, decrypt_with_encoding, encrypt, encrypt_bytes_with_aad,
     encrypt_bytes_with_context, encrypt_with_aad, encrypt_with_context, encrypt_with_encoding,
+    reencrypt,
 };
 pub use error::CryptoError;
 pub use key::{MasterKey, generate_master_key};
