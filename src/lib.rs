@@ -41,9 +41,26 @@
 //!
 //! ```text
 //! master_key → HKDF-SHA256("encryptman:{context}") → AES key
-//! plaintext + random nonce → AES-256-GCM → ciphertext
+//! plaintext + random nonce (+ optional AAD) → AES-256-GCM → ciphertext
 //! version || nonce || ciphertext → base64 → encoded string
 //! ```
+//!
+//! ## Associated data (AAD)
+//!
+//! A ciphertext can be bound to a public record identifier (a user id, a
+//! settings key, a file path) with [`encrypt_with_aad`] and
+//! [`decrypt_with_aad`] (or the byte variants, [`encrypt_bytes_with_aad`]
+//! and [`decrypt_bytes_with_aad`]). AES-GCM authenticates the AAD without
+//! encrypting it or storing it in the ciphertext: the same AAD must be
+//! supplied at decryption time, so a ciphertext moved to a different
+//! record fails to decrypt. AAD is public, not secret, and an empty AAD is
+//! byte-for-byte equivalent to the plain context API.
+//!
+//! ## Key rotation
+//!
+//! [`reencrypt`] moves a ciphertext from an old master key to a new one.
+//! The plaintext exists only inside the function and is zeroized before it
+//! returns, so callers never have to hold it themselves.
 //!
 //! ## When NOT to use this crate
 //!
