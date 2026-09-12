@@ -28,10 +28,11 @@ jobs:
       - name: Enforce no panics in library code
         run: |
           awk '
+            FNR == 1 { in_test = 0 }
             /^[[:space:]]*\/\// { next }
             /^#\[cfg\(test\)\]/ { in_test = 1 }
             in_test && /^}/ { in_test = 0 }
-            !in_test && /expect\(|unwrap\(|panic!/ { print "line " FNR ": " $0; bad = 1 }
+            !in_test && /expect\(|unwrap\(|panic!/ { print FILENAME ":" FNR ": " $0; bad = 1 }
             END {
               if (bad) {
                 print "FAIL: unwrap()/expect()/panic! found in non-test, non-doc code" > "/dev/stderr"
@@ -39,7 +40,7 @@ jobs:
               }
               print "OK: no unwrap()/expect()/panic! in library code"
             }
-          ' src/lib.rs
+          ' src/*.rs
 
   machete:
     name: Dead dependencies
