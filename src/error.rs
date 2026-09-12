@@ -50,4 +50,10 @@ pub enum CryptoError {
         /// Actual length received.
         actual: usize,
     },
+
+    /// An encoding name is not recognized.
+    ///
+    /// The valid names are `"standard"` and `"url_safe_no_pad"`.
+    #[error("unknown encoding: expected \"standard\" or \"url_safe_no_pad\"")]
+    InvalidEncoding,
 }
