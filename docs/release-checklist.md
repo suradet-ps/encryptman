@@ -21,8 +21,8 @@ Current release map (from `docs/ROADMAP.md`):
 |---------|---------|-----------|
 | 0.3.0 | Phase 1 hardening + breaking error changes | **Yes** — bundle all breaks here |
 | 0.3.x | Phase 2 KATs, proptest, fuzz, Miri, MSRV job | No |
-| 0.4.0 | Phase 3 AAD, reencrypt, module split | No |
-| 0.5.0 | Phase 4 no_std/wasm, benches, cargo-deny, SECURITY.md | No |
+| 0.4.0 | Phase 3 AAD, reencrypt, FromStr, module split | **Yes** — new `CryptoError::InvalidEncoding` variant |
+| 0.5.0 | Phase 4 no_std/wasm, benches, cargo-deny, SECURITY.md | Yes if it adds error variants; otherwise No |
 | 1.0.0 | Phase 5 + 6 format freeze, audit, API freeze | Yes (the point) |
 
 ## Pre-release (do all of this in a branch first)

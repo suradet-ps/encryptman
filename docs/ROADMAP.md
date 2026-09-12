@@ -454,38 +454,50 @@ findings; Miri job green; MSRV job green; all of it is part of
 
 ## Phase 3: API completion -- AAD, rotation, ergonomics
 
-- [ ] **AAD support.** Add `encrypt_with_aad(context, plaintext, aad)`
-  and `decrypt_with_aad(context, encoded, aad)` (and byte variants).
-  AAD binds the ciphertext to its record (user id, field name,
-  `settings.json` path). Document that AAD is public, not secret -- its
-  job is binding, not hiding. Document the rule: **if you use AAD at
-  encrypt time, you must use it at decrypt time.**
-- [ ] **`reencrypt` helper.** `reencrypt(old_key, new_key, context,
-  ciphertext) -> Result<String>`: decrypt, re-encrypt, zeroize the
-  intermediate plaintext. Document the key-rotation procedure in an
-  example ("migrate the key on all stored settings without exposing
-  plaintext to the calling code").
-- [ ] **Error ergonomics.** Derive `PartialEq, Clone` on `CryptoError`
-  (and `Eq` where variants allow); change `EncryptionFailed(String)` to
-  a payload-less variant (the `aead` error string is unstable surface
-  and leaks internals). Ensure `std::error::Error::source()` returns the
-  underlying `aead` error via `#[source]` for debugging. Add
-  `#[must_use]` to pure functions (`derive_key`, `Encoding::encode`).
-- [ ] **Module split (behavior-preserving).** Reorganize `src/lib.rs`
-  into `src/{lib.rs, key.rs, encoding.rs, error.rs, format.rs,
-  encrypt.rs}` -- the test suite from Phase 1-2 makes this a
-  mechanical, safe refactor. Single source of truth for the packed
-  layout lives in `format.rs` with the format KATs from Phase 2.
-- [ ] **`Encoding::from_str`** for `"standard"` / `"url_safe_no_pad"`
-  (serialization round-trip for settings files), with tests.
-- [ ] **Documentation pass**: every public item re-reviewed against the
-  doc/example/test triple; `cargo doc --no-deps` with
-  `RUSTDOCFLAGS="-D warnings"` in CI.
+**Status: COMPLETE -- ships in 0.4.0 (one intentional break: the new
+`CryptoError::InvalidEncoding` variant)**
 
-**Acceptance:** new APIs have docs, examples, tests, and property tests;
-`cargo semver-checks` (added to CI) reports the intended diff; `cargo doc`
-is warning-free; the module split ships with zero test changes beyond
-import paths; CHANGELOG documents the 0.4.0 (breaking) bump.
+- [x] **AAD support.** `encrypt_with_aad` / `decrypt_with_aad` plus
+  `encrypt_bytes_with_aad` / `decrypt_bytes_with_aad` bind a ciphertext
+  to a public record (user id, field name, `settings.json` path). AAD is
+  authenticated but never encrypted or stored; `&[]` is byte-for-byte
+  equivalent to the existing APIs (pinned by a property test), so every
+  existing ciphertext keeps decrypting. Docs state the rule: **if you use
+  AAD at encrypt time, you must use it at decrypt time.**
+- [x] **`reencrypt` helper.** `reencrypt(old_key, new_key, context,
+  encoded)`: decrypt, re-encrypt, zeroize the intermediate plaintext, so
+  the caller never holds it. Context and Standard encoding are
+  preserved; AAD-bound ciphertexts are documented as out of scope for
+  this helper (rotate them through the AAD APIs).
+- [x] **Error ergonomics.** `PartialEq`, `Eq`, `Clone`, and the
+  payload-less `EncryptionFailed` landed early in the 0.3.0 hardening
+  (Phase 1); 0.4.0 adds `InvalidEncoding` for encoding-name parsing and
+  `#[must_use]` on `Encoding::encode`. Once the unstable `aead` string is
+  removed there is no payload to expose as a source; `InvalidBase64` and
+  `InvalidUtf8` already expose their sources through thiserror's
+  `#[from]`.
+- [x] **Module split (behavior-preserving).** `src/lib.rs` is a thin
+  crate root re-exporting the same public paths over
+  `src/{key,encoding,error,format,encrypt}.rs`. The packed layout lives
+  only in `format.rs`; unit tests moved next to the code they cover with
+  no assertion changes, and the CI panic gate now scans every `src/*.rs`
+  file.
+- [x] **`Encoding::from_str`** via `impl FromStr` for `"standard"` /
+  `"url_safe_no_pad"`, with `Encoding::as_str` as the inverse
+  (serialization round-trip for settings files), with tests.
+- [x] **Documentation pass**: every new item has the doc/example/test
+  triple; `cargo doc --no-deps` with `RUSTDOCFLAGS="-D warnings"` runs in
+  CI (new Docs job).
+
+**Acceptance (all met by 0.4.0):** new APIs have docs, examples, unit
+tests, and property tests (7 new properties at 1000 cases each); `cargo
+semver-checks` runs in CI against the published baseline and at 0.4.0
+reports "no semver update required" -- forced with `--release-type patch`
+it runs all 223 checks, of which 221 pass and only the two intended
+breaks fail (`CryptoError::InvalidEncoding` added, `Encoding::encode`
+`#[must_use]`), proving the module split changed no public path; `cargo
+doc` is warning-free in CI; the CHANGELOG documents the 0.4.0 (breaking)
+bump.
 
 ---
 
