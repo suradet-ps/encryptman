@@ -22,7 +22,8 @@ Current release map (from `docs/ROADMAP.md`):
 | 0.3.0 | Phase 1 hardening + breaking error changes | **Yes** - bundle all breaks here |
 | 0.3.x | Phase 2 KATs, proptest, fuzz, Miri, MSRV job | No |
 | 0.4.0 | Phase 3 AAD, reencrypt, FromStr, module split | **Yes** - new `CryptoError::InvalidEncoding` variant |
-| 0.5.0 | Phase 4 no_std/wasm, benches, cargo-deny, SECURITY.md | Yes if it adds error variants; otherwise No |
+| 0.5.0 | Phase 4 partial: cargo-deny, SECURITY.md, examples, wasm CI, automated publish | No |
+| 0.6.0 | Phase 4 remainder: no_std, benchmarks | No |
 | 1.0.0 | Phase 5 + 6 format freeze, audit, API freeze | Yes (the point) |
 
 ## Pre-release (do all of this in a branch first)
@@ -32,7 +33,7 @@ Current release map (from `docs/ROADMAP.md`):
 - [ ] `cargo clippy --all-targets --all-features` passes with zero warnings
 - [ ] `cargo fmt --check` passes
 - [ ] `cargo doc --no-deps` builds without warnings
-- [ ] CI is green on `main` (Quality, Test, Audit jobs)
+- [ ] CI is green on `main` (all jobs)
 - [ ] If this release changed the ciphertext format: **STOP** - this is
       not allowed until `docs/FORMAT.md` and a new version byte exist
       (roadmap Phase 5)
@@ -66,15 +67,21 @@ Current release map (from `docs/ROADMAP.md`):
 - [ ] Check the release notes body contains the CHANGELOG section (not
       empty, no stray "Unreleased" text)
 
-## Publish to crates.io (manual until roadmap Phase 4)
+## Publish to crates.io (automated since 0.5.0)
 
-- [ ] `cargo publish --dry-run` - verify the tarball contents
-      (`--list` on the packaged crate: src/, README, licenses, changelog)
-- [ ] `cargo login` (only if the token is not already configured)
-- [ ] `cargo publish` - confirm the new version appears on
+The release workflow runs `cargo publish --dry-run` and then
+`cargo publish`, using the `CARGO_REGISTRY_TOKEN` repository secret.
+
+- [ ] Watch the `Release` workflow for the tag: GitHub release created,
+      `cargo publish` succeeds
+- [ ] Confirm the new version appears on
       `https://crates.io/crates/encryptman`
 - [ ] Verify `docs.rs` build succeeds (usually takes ~1 minute after
       publish)
+- [ ] If the workflow fails before publishing: fix and re-run the job,
+      or fall back to a local `cargo publish`
+- [ ] If the workflow fails with "version already exists": the crate was
+      published; only the GitHub release needs attention
 
 ## Post-release
 

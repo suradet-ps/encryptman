@@ -129,9 +129,10 @@ toolchain on 2026-09-26:
   tags `v0.2.0` through `v0.4.0`.
 - **Layout**: thin crate root `src/lib.rs` over `src/{key,encoding,error,
   format,encrypt}.rs` (1,353 lines incl. tests), `tests/{kat,proptests}.rs`,
-  `fuzz/` (2 targets + committed corpus), `docs/`. No `benches/`,
-  `examples/`, `SECURITY.md`, `CONTRIBUTING.md`, or `deny.toml`.
-  `Cargo.lock` exists locally but is gitignored (standard for a library).
+  `fuzz/` (2 targets + committed corpus), `examples/` (store_settings,
+  rotate_key), `docs/`, `deny.toml`, `SECURITY.md`. No `benches/` or
+  `CONTRIBUTING.md`. `Cargo.lock` exists locally but is gitignored
+  (standard for a library).
 - **API surface** (all `pub`): `MasterKey` (generate / from_bytes /
   as_bytes / into_bytes, `TryFrom<&[u8]>`, `TryFrom<Vec<u8>>` with the
   source buffer zeroized, Debug redaction, Zeroize-on-drop); `Encoding`
@@ -158,18 +159,19 @@ toolchain on 2026-09-26:
   random-nonce uniqueness, wrong-key/wrong-context/tamper failures,
   encoding names, base64 validity, truncated ciphertext,
   empty/unicode/10 KB plaintexts, key conversions, version byte checks.
-- **CI** (`.github/workflows/ci.yml`): 9 jobs -- Quality (fmt + clippy
+- **CI** (`.github/workflows/ci.yml`): 10 jobs -- Quality (fmt + clippy
   with `-D warnings` + grep gate for `unwrap`/`expect`/`panic!` outside
   tests), Docs (`RUSTDOCFLAGS="-D warnings"`), Dead dependencies (`cargo
-  machete`), Test (`cargo test --all-features`), Semver checks (`cargo
-  semver-checks`), Audit (`actions-rust-lang/audit`), MSRV (1.85.0
-  exactly), Miri (lib tests + KATs on nightly), Fuzz (2 targets, 60 s each,
-  plus crash-artifact check). All Actions pinned to SHAs, `contents: read`
-  permission. **Still missing**: `cargo-deny` license checks, wasm/no_std
-  builds.
+  machete`), Test (`cargo test --all-features`), WASM (wasm32-wasip1 and
+  wasm32-unknown-unknown), Semver checks (`cargo semver-checks`),
+  Licenses & advisories (`cargo deny check`), MSRV (1.85.0 exactly),
+  Miri (lib tests + KATs on nightly), Fuzz (2 targets, 60 s each, plus
+  crash-artifact check). All Actions pinned to SHAs, `contents: read`
+  permission. **Still missing**: the `no_std` build check.
 - **Release** (`.github/workflows/release.yml`): on `v*` tag, creates a
-  GitHub release with CHANGELOG body. **`cargo publish` to crates.io is
-  still manual** (0.4.0 published 2026-09-12).
+  GitHub release with the CHANGELOG body, then publishes to crates.io
+  with `cargo publish` (automated since 0.5.0 via the
+  `CARGO_REGISTRY_TOKEN` secret).
 - **Changelog**: Keep a Changelog format, all 7 releases documented,
   including the 0.2.0 format break and the 0.3.0 / 0.4.0 breaking changes.
 - **History**: 46 commits, conventional-ish messages, clean tree.
@@ -518,45 +520,50 @@ bump.
 
 ## Phase 4: Ecosystem citizenship -- targets, benches, security process
 
+**Status: PARTIAL -- 0.5.0 ships cargo-deny, SECURITY.md, docs/security.md,
+examples, WASM CI, and automated publishing. `no_std` and benchmarks
+remain, planned for 0.6.0.**
+
 - [ ] **`no_std` support.** Make the crate `#![no_std]` with an `alloc`
   fallback: `std` feature on by default (for `std::string` errors and
   `format!` in error messages); `no_std` builds with `alloc`. All
   dependencies already support this (verified: `aes-gcm`, `base64`,
   `hkdf`, `sha2`, `getrandom` all have `no_std`/`alloc` paths). CI
   compiles `--no-default-features`.
-- [ ] **WASM verification.** CI jobs: `cargo build --target
-  wasm32-unknown-unknown` and `--target wasm32-wasip1` (add targets to
-  `rustup` in CI). This is the biggest untapped audience: web workers
-  and WASM plugins encrypting settings with a key from the OS keychain
-  via a bridge. If `getrandom` on `wasm32-unknown-unknown` requires
-  `wasm-opt`/`js` features, document the configuration in a README
-  section "WebAssembly".
+- [x] **WASM verification.** The CI `wasm` job builds `wasm32-wasip1`
+  (no configuration needed) and `wasm32-unknown-unknown --features
+  wasm_js` (getrandom's Web Crypto backend; the feature was added in
+  0.5.0). The configuration is documented in the README "WebAssembly"
+  section. No wasm runtime is needed to compile.
 - [ ] **Benchmarks (`criterion`).** `benches/encrypt.rs`:
   encrypt/decrypt at 16 B, 256 B, 1 KiB, 16 KiB; `derive_key` cost; and
   overhead vs. raw `aes-gcm` on the same machine. Publish numbers in
   `docs/perf-baseline.md` (machine description included). Add a CI
   "bench, don't gate" job (no flaky threshold gates; results are for
   humans).
-- [ ] **`cargo-deny`.** Add `deny.toml` (advisories: warn; licenses:
-  allow MIT/Apache-2.0/BSD/ISC/Zlib; bans: `rand`). Replace/augment the
-  audit job with `cargo-deny check licenses advisories bans`. Pinned
-  action SHA, as always.
-- [ ] **`SECURITY.md`.** Report channel (GitHub private vulnerability
+- [x] **`cargo-deny`.** `deny.toml` allows permissive licenses only
+  (MIT/Apache-2.0/BSD/ISC/Zlib/Unicode-3.0), checks advisories, denies
+  unknown registries/git sources, and bans `rand` except under the
+  `proptest` dev-dependency. The `audit` CI job was replaced by a
+  `deny` job running `cargo deny check` (cargo-deny 0.20.2, pinned).
+- [x] **`SECURITY.md`.** Report channel (GitHub private vulnerability
   disclosure), response expectations (acknowledgment within 48 h,
   fix-within-90-days intent), disclosure policy (coordinated), and the
-  security-relevant invariants the crate promises (no panic on hostile
-  input, zeroize behavior, format stability within a version byte).
-- [ ] **`examples/` directory.**
+  security-relevant invariants the crate promises. Ships in the crate
+  tarball.
+- [x] **`examples/` directory.**
   - `examples/store_settings.rs` -- encrypt a `settings.json` secret
-    with `keyring`-stored master key (the canonical use case).
+    with a `keyring`-stored master key (the canonical use case; keyring
+    3.6 dev-dependency keeps MSRV 1.85).
   - `examples/rotate_key.rs` -- uses `reencrypt` end-to-end.
-  - `examples/web_worker.rs` -- the WASM path with a `fetch`-based
-    key bridge (doc-only if a wasm runtime is too heavy).
-- [ ] **Automated publishing.** Extend the release workflow: after the
-  GitHub release, run `cargo publish` with a `CARGO_REGISTRY_TOKEN`
-  secret, guarded by `cargo publish --dry-run` in CI on every tag
-  push. Keep the CHANGELOG-body release step.
-- [ ] **`docs/security.md`**: the crate's threat model, in prose:
+  - The WASM path is documented in the README "WebAssembly" section and
+    compiled by the `wasm` CI job instead of a standalone example, so no
+    wasm runtime is required.
+- [x] **Automated publishing.** The release workflow runs
+  `cargo publish --dry-run` and `cargo publish` (via the
+  `CARGO_REGISTRY_TOKEN` secret) after the GitHub release; first used
+  for 0.5.0. The CHANGELOG-body release step is unchanged.
+- [x] **`docs/security.md`**: the crate's threat model, in prose:
   what it protects (plaintext at rest), what it doesn't (key storage,
   side channels, traffic), the nonce-collision math (2^96 random
   nonces: collision probability < 2^-32 after ~2^48 encryptions --
@@ -564,10 +571,11 @@ bump.
   why empty-salt HKDF is fine for a single master key (RFC 5869 allows
   it; the `info` parameter does the domain separation).
 
-**Acceptance:** crate builds on `wasm32` and `no_std` in CI; `cargo-deny`
-clean; `SECURITY.md` published; benchmarks have real numbers in
-`docs/perf-baseline.md`; release workflow publishes to crates.io
-automatically; no new dead dependencies.
+**Acceptance (0.6.0 target):** crate builds on `wasm32` and `no_std` in
+CI; `cargo-deny` clean; `SECURITY.md` published; benchmarks have real
+numbers in `docs/perf-baseline.md`; release workflow publishes to
+crates.io automatically; no new dead dependencies. *(As of 0.5.0: all
+met except the `no_std` build and the benchmark numbers.)*
 
 ---
 
