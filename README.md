@@ -8,13 +8,13 @@ AES-256-GCM encryption for application settings with HKDF key derivation.
 
 ## Features
 
-- **AES-256-GCM** authenticated encryption — guarantees confidentiality + integrity
-- **HKDF-SHA256** key derivation — derive purpose-specific keys safely from one master key
-- **Random nonces** — encrypting the same plaintext twice yields distinct ciphertexts
-- **Zeroize on drop** — master key memory is zeroed out automatically on drop
-- **Context isolation** — prevents cross-domain ciphertext substitution attacks
-- **AAD binding** — optionally bind a ciphertext to the record it belongs to (user id, field name)
-- **Key rotation** — `reencrypt()` moves a ciphertext to a new master key without exposing plaintext
+- **AES-256-GCM** authenticated encryption - guarantees confidentiality + integrity
+- **HKDF-SHA256** key derivation - derive purpose-specific keys safely from one master key
+- **Random nonces** - encrypting the same plaintext twice yields distinct ciphertexts
+- **Zeroize on drop** - master key memory is zeroed out automatically on drop
+- **Context isolation** - prevents cross-domain ciphertext substitution attacks
+- **AAD binding** - optionally bind a ciphertext to the record it belongs to (user id, field name)
+- **Key rotation** - `reencrypt()` moves a ciphertext to a new master key without exposing plaintext
 
 ## Installation
 
@@ -156,10 +156,10 @@ plaintext + random 12-byte nonce ─────────────┴─�
 
 This crate is designed for encrypting small strings (passwords, API keys, tokens). It is **not** suitable for:
 
-- **Password hashing** — use [argon2](https://crates.io/crates/argon2) or [bcrypt](https://crates.io/crates/bcrypt) instead.
-- **File encryption** — use a streaming AEAD like [ChaCha20Poly1305](https://crates.io/crates/chacha20poly1305) with proper chunking.
-- **Database-at-rest encryption** — use your database's built-in encryption (e.g., PostgreSQL `pgcrypto`, MySQL `AES_ENCRYPT`).
-- **Large data** — this crate allocates the entire plaintext/ciphertext in memory.
+- **Password hashing** - use [argon2](https://crates.io/crates/argon2) or [bcrypt](https://crates.io/crates/bcrypt) instead.
+- **File encryption** - use a streaming AEAD like [ChaCha20Poly1305](https://crates.io/crates/chacha20poly1305) with proper chunking.
+- **Database-at-rest encryption** - use your database's built-in encryption (e.g., PostgreSQL `pgcrypto`, MySQL `AES_ENCRYPT`).
+- **Large data** - this crate allocates the entire plaintext/ciphertext in memory.
 
 ## Minimum Supported Rust Version
 

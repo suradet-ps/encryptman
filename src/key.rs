@@ -57,7 +57,7 @@ impl MasterKey {
     ///
     /// **Security note**: The returned byte array is **no longer protected by
     /// Zeroize**. It will not be cleared on drop. The caller is responsible for
-    /// handling the bytes securely — e.g., zeroing them when no longer needed,
+    /// handling the bytes securely - e.g., zeroing them when no longer needed,
     /// or ensuring they do not end up in logs, swap files, or core dumps.
     pub fn into_bytes(mut self) -> [u8; KEY_SIZE] {
         let bytes = self.0;

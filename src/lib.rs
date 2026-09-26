@@ -15,7 +15,7 @@
 //! use encryptman::{encrypt, decrypt, generate_master_key};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Generate a master key (store this securely — e.g., OS keychain)
+//!     // Generate a master key (store this securely - e.g., OS keychain)
 //!     let master_key = generate_master_key()?;
 //!
 //!     // Encrypt
@@ -67,15 +67,15 @@
 //! This crate is designed for encrypting small strings (passwords, API keys,
 //! tokens). It is **not** suitable for:
 //!
-//! - **Password hashing** — use [`argon2`](https://crates.io/crates/argon2) or
+//! - **Password hashing** - use [`argon2`](https://crates.io/crates/argon2) or
 //!   [`bcrypt`](https://crates.io/crates/bcrypt) instead.
-//! - **File encryption** — use a streaming AEAD like
+//! - **File encryption** - use a streaming AEAD like
 //!   [`XSalsa20Poly1305`](https://crates.io/crates/xsalsa20poly1305) or
 //!   [`ChaCha20Poly1305`](https://crates.io/crates/chacha20poly1305) with
 //!   proper chunking.
-//! - **Database-at-rest encryption** — use your database's built-in encryption
+//! - **Database-at-rest encryption** - use your database's built-in encryption
 //!   (e.g., PostgreSQL `pgcrypto`, MySQL `AES_ENCRYPT`).
-//! - **Large data** — this crate allocates the entire plaintext/ciphertext in
+//! - **Large data** - this crate allocates the entire plaintext/ciphertext in
 //!   memory. For large data, use streaming encryption.
 
 mod encoding;

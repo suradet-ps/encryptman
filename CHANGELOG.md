@@ -88,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: `CryptoError::EncryptionFailed` no longer carries the
   underlying `aead` error string (unstable upstream surface). It is now a
   unit variant; `CryptoError` derives `PartialEq`, `Eq`, and `Clone`.
-- Nonce generation no longer panics on RNG failure — it returns
+- Nonce generation no longer panics on RNG failure - it returns
   `CryptoError::RandomnessFailed`.
 - `TryFrom<Vec<u8>> for MasterKey` now zeroizes the source buffer before it
   is dropped, on both success and error paths, so no copy of the key
@@ -105,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Added `#![forbid(unsafe_code)]` — the crate guarantees it contains no
+- Added `#![forbid(unsafe_code)]` - the crate guarantees it contains no
   unsafe code.
 - All public API panic paths removed: the crate returns `Result` everywhere
   an operation can fail. Verified by a CI grep gate that rejects
@@ -132,8 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `encrypt_with_encoding()` / `decrypt_with_encoding()` — encrypt with custom base64 encoding
-- `encrypt_bytes_with_context()` / `decrypt_bytes_with_context()` — binary API for arbitrary data
+- `encrypt_with_encoding()` / `decrypt_with_encoding()` - encrypt with custom base64 encoding
+- `encrypt_bytes_with_context()` / `decrypt_bytes_with_context()` - binary API for arbitrary data
 - `Encoding` enum (`Standard`, `UrlSafeNoPad`) with public `encode()` / `decode()` methods
 - `TryFrom<&[u8]>` and `TryFrom<Vec<u8>>` implementations for `MasterKey`
 - `EncryptionFailed` error variant (separate from `KeyDerivation`)
@@ -153,7 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `Encoding::encode()` / `decode()` are now `pub` (were private — dead API from outside crate)
+- `Encoding::encode()` / `decode()` are now `pub` (were private - dead API from outside crate)
 
 ## [0.1.0] - 2026-07-21
 
