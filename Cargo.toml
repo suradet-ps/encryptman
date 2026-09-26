@@ -12,6 +12,12 @@ readme = "README.md"
 documentation = "https://docs.rs/encryptman"
 include = ["src/**", "README.md", "LICENSE*", "CHANGELOG.md", "SECURITY.md"]
 
+[features]
+# Enables getrandom's `wasm_js` backend for `wasm32-unknown-unknown`
+# (browsers and workers, via the Web Crypto API). See the WebAssembly
+# section in the README.
+wasm_js = ["getrandom/wasm_js"]
+
 [lints.rust]
 missing_docs = "deny"
 

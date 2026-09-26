@@ -132,6 +132,22 @@ let bytes = *key.as_bytes();
 let restored = MasterKey::from_bytes(bytes);
 ```
 
+## WebAssembly
+
+encryptman builds for both WASI and the browser/worker world:
+
+```console
+# wasm32-wasip1 (WASI preview 1): no configuration needed
+cargo build --target wasm32-wasip1
+
+# wasm32-unknown-unknown (browsers, workers): enable the `wasm_js`
+# feature so getrandom uses the Web Crypto API
+cargo build --target wasm32-unknown-unknown --features wasm_js
+```
+
+The host must provide `crypto.getRandomValues` (browsers and workers
+do). Both targets are compiled on every CI run.
+
 ## How It Works
 
 ```text
