@@ -94,8 +94,8 @@ jobs:
       - run: cargo install cargo-semver-checks --version 0.50.0 --locked
       - run: cargo semver-checks check-release
 
-  audit:
-    name: Audit
+  deny:
+    name: Licenses & advisories
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,8 +104,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           toolchain: stable
-      - uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24 # v1.2.7
-        name: Audit Rust Dependencies
+      - run: cargo install cargo-deny --version 0.20.2 --locked
+      - run: cargo deny check
 
   msrv:
     name: MSRV (1.85.0)

@@ -1,0 +1,41 @@
+# cargo-deny configuration.
+#
+# Run locally with `cargo deny check`; CI runs the same in the `deny` job.
+# Policy: permissive licenses only, advisories reported, no unknown
+# registries, and no `rand` in the library dependency graph (proptest is a
+# dev-only exception; `cargo machete` guards dead direct dependencies).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+# Permissive alternatives of dual/triple-licensed crates are resolved
+# automatically; only licenses on this list are accepted at all.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+# The list above is deliberate policy, not a mirror of today's graph; an
+# unused entry is not a warning.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+# `rand` was removed from the library in 0.3.0; proptest (dev-only)
+# legitimately depends on it.
+deny = [{ name = "rand", wrappers = ["proptest"] }]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
