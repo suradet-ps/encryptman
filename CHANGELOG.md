@@ -5,7 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-09-26
+
+### Added
+
+- Security process: `SECURITY.md` (private vulnerability disclosure,
+  response expectations, security-relevant invariants) and
+  `docs/security.md` (threat model, nonce collision math, empty-salt
+  HKDF rationale, zeroization coverage, AAD semantics, error behavior).
+  `SECURITY.md` ships in the crate tarball.
+- Examples: `examples/store_settings.rs` (encrypt a setting with a
+  master key stored in the OS keychain) and `examples/rotate_key.rs`
+  (`reencrypt` end-to-end).
+- WebAssembly: the `wasm_js` feature enables `getrandom`'s Web Crypto
+  backend for `wasm32-unknown-unknown`; `wasm32-wasip1` builds with no
+  configuration. Documented in a new README "WebAssembly" section and
+  compiled in CI.
+
+### Changed
+
+- CI: the `audit` job is replaced by `cargo-deny` (`deny.toml`:
+  permissive licenses only, advisories, banned crates, pinned sources),
+  and a new `wasm` job builds both wasm targets.
+- Releases: pushing a `v*` tag now runs `cargo publish` after creating
+  the GitHub release, so crates.io publishing is automated.
 
 ## [0.4.0] - 2026-09-12
 
