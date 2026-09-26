@@ -8,10 +8,11 @@ next.
 > **What encryptman is.** A small, opinionated Rust library for encrypting
 > *small strings* (passwords, API keys, tokens, connection strings) at rest,
 > with one master key. AES-256-GCM authenticated encryption, HKDF-SHA256
-> context separation, random nonces, zeroize-on-drop key handling, a version
-> byte for future format migration, and two base64 encodings. That is the
-> whole job. Published on crates.io (v0.2.2, ~600 downloads as of
-> 2026-08-14), dual-licensed MIT/Apache-2.0, MSRV 1.85 (edition 2024).
+> context separation, random nonces, zeroize-on-drop key handling, AAD
+> support, key rotation, a version byte for future format migration, and two
+> base64 encodings. That is the whole job. Published on crates.io (v0.4.0,
+> 2,163 downloads as of 2026-09-26), dual-licensed MIT/Apache-2.0, MSRV
+> 1.85 (edition 2024).
 >
 > **What encryptman is not.** Not a password hasher. Not a file encryptor.
 > Not a key management system. Not a TLS or PKI library. Not a
@@ -23,12 +24,14 @@ next.
 > honestly; this roadmap keeps that spirit.
 
 Nothing here is called "done" on intent alone. The repo already has a real
-CI pipeline (`.github/workflows/ci.yml`: `cargo fmt --check`, `cargo clippy
---all-targets --all-features` under `RUSTFLAGS="-D warnings"`, `cargo test
---all-features`, `actions-rust-lang/audit`; all Actions pinned to SHA), a
-release workflow that auto-creates GitHub releases from the CHANGELOG, and
-25 unit tests + 7 doc tests passing on stable. Every phase's acceptance is
-checked against that pipeline.
+CI pipeline (`.github/workflows/ci.yml`: 9 jobs -- Quality (fmt, clippy
+under `RUSTFLAGS="-D warnings"`, and a grep gate banning `unwrap`/`expect`/
+`panic!` in library code), Docs, Dead dependencies (`cargo machete`), Test,
+Semver checks, Audit, MSRV (1.85.0), Miri, and Fuzz; all Actions pinned to
+SHA), a release workflow that auto-creates GitHub releases from the
+CHANGELOG, and 82 tests (41 unit + 11 KATs + 19 proptest + 11 doc tests)
+passing on stable. Every phase's acceptance is checked against that
+pipeline.
 
 ---
 
@@ -118,62 +121,70 @@ serve, and does it violate any other?"
 ## Current State (verified against the repo, not assumed)
 
 Everything below was verified by reading the repo and running the
-toolchain on 2026-08-14:
+toolchain on 2026-09-26:
 
-- **Crate**: `encryptman` v0.2.2, edition 2024, `rust-version = "1.85"`,
+- **Crate**: `encryptman` v0.4.0, edition 2024, `rust-version = "1.85"`,
   license MIT/Apache-2.0, repository `github.com/suradet-ps/encryptman`.
-  Published on crates.io (613 downloads at time of writing).
-- **Layout**: single module `src/lib.rs` (771 lines incl. tests). No
-  `tests/`, `benches/`, `examples/`, or `docs/` directories. No
-  `SECURITY.md`. `Cargo.lock` exists locally but is gitignored (standard
-  for a library).
+  Published on crates.io (2,163 downloads at time of writing); 46 commits,
+  tags `v0.2.0` through `v0.4.0`.
+- **Layout**: thin crate root `src/lib.rs` over `src/{key,encoding,error,
+  format,encrypt}.rs` (1,353 lines incl. tests), `tests/{kat,proptests}.rs`,
+  `fuzz/` (2 targets + committed corpus), `docs/`. No `benches/`,
+  `examples/`, `SECURITY.md`, `CONTRIBUTING.md`, or `deny.toml`.
+  `Cargo.lock` exists locally but is gitignored (standard for a library).
 - **API surface** (all `pub`): `MasterKey` (generate / from_bytes /
-  as_bytes / into_bytes, `TryFrom<&[u8]>`, `TryFrom<Vec<u8>>`, Debug
-  redaction, Zeroize-on-drop); `Encoding` (`Standard`, `UrlSafeNoPad`);
-  `CryptoError` (8 variants); free functions `encrypt`, `decrypt`,
-  `encrypt_with_context`, `decrypt_with_context`,
-  `encrypt_with_encoding`, `decrypt_with_encoding`,
-  `encrypt_bytes_with_context`, `decrypt_bytes_with_context`,
-  `generate_master_key`. A private `derive_key` (HKDF-SHA256, `info` =
-  `"encryptman:{context}"`, empty salt).
+  as_bytes / into_bytes, `TryFrom<&[u8]>`, `TryFrom<Vec<u8>>` with the
+  source buffer zeroized, Debug redaction, Zeroize-on-drop); `Encoding`
+  (`Standard`, `UrlSafeNoPad`, `encode`/`decode`, `as_str`/`FromStr`);
+  `CryptoError` (10 variants, `Clone + PartialEq + Eq`); free functions
+  `encrypt`, `decrypt`, `encrypt_with_context`, `decrypt_with_context`,
+  `encrypt_with_encoding`, `decrypt_with_encoding`, `encrypt_with_aad`,
+  `decrypt_with_aad`, `encrypt_bytes_with_context`,
+  `decrypt_bytes_with_context`, `encrypt_bytes_with_aad`,
+  `decrypt_bytes_with_aad`, `reencrypt`, `generate_master_key`. A private
+  `derive_key` (HKDF-SHA256, `info` = `"encryptman:{context}"`, empty salt).
 - **Ciphertext format**: `version (0x01) || 12-byte random nonce ||
   AES-256-GCM ciphertext || 16-byte tag`, base64-encoded
-  (`Standard` or `UrlSafeNoPad`).
-- **Dependencies**: `aes-gcm 0.11`, `base64 0.23`, `getrandom 0.4`,
-  `hkdf 0.13`, `rand 0.10`, `sha2 0.11`, `thiserror 2`, `zeroize 1`.
-  `missing_docs = "deny"` lint set. **`rand` is not used anywhere in the
-  code** (verified by search; only `getrandom::fill` is called) -- a dead
-  dependency.
-- **Tests**: 25 unit tests + 7 doc tests, all passing (`cargo test
-  --all-features`). Covered: roundtrips, random-nonce uniqueness,
-  wrong-key/wrong-context/tamper failures, base64 validity, truncated
-  ciphertext, empty/unicode/10 KB plaintexts, key conversions, version
-  byte checks, encoding variants. No known-answer tests, no property
-  tests, no fuzzing.
-- **CI** (`.github/workflows/ci.yml`): 3 jobs -- Quality (fmt + clippy
-  with `-D warnings`), Test (`cargo test --all-features`), Audit
-  (`actions-rust-lang/audit`). All Actions pinned to SHAs, `contents:
-  read` permission. **Missing**: Miri, MSRV check, `cargo-deny` license
-  check, wasm/no_std builds, doc build, `cargo semver-checks`,
-  fuzzing.
+  (`Standard` or `UrlSafeNoPad`). AAD is authenticated per call and never
+  stored, so the wire format is unchanged by the 0.4.0 APIs.
+- **Dependencies**: `aes-gcm 0.11` (with its `zeroize` feature), `base64
+  0.23`, `getrandom 0.4`, `hkdf 0.13`, `sha2 0.11`, `thiserror 2`,
+  `zeroize 1`; dev-dependency `proptest 1`. **No dead dependencies** (the
+  `cargo machete` CI job enforces this). `missing_docs = "deny"` lint set.
+- **Tests**: 82 total -- 41 unit, 11 KATs (NIST CAVP GCMVS vectors plus an
+  OpenSSL-computed format fixture), 19 proptest properties, 11 doc tests,
+  all passing (`cargo test --all-features`). Covered: roundtrips, AAD
+  binding, empty-AAD equivalence, `reencrypt` rotation, context isolation,
+  random-nonce uniqueness, wrong-key/wrong-context/tamper failures,
+  encoding names, base64 validity, truncated ciphertext,
+  empty/unicode/10 KB plaintexts, key conversions, version byte checks.
+- **CI** (`.github/workflows/ci.yml`): 9 jobs -- Quality (fmt + clippy
+  with `-D warnings` + grep gate for `unwrap`/`expect`/`panic!` outside
+  tests), Docs (`RUSTDOCFLAGS="-D warnings"`), Dead dependencies (`cargo
+  machete`), Test (`cargo test --all-features`), Semver checks (`cargo
+  semver-checks`), Audit (`actions-rust-lang/audit`), MSRV (1.85.0
+  exactly), Miri (lib tests + KATs on nightly), Fuzz (2 targets, 60 s each,
+  plus crash-artifact check). All Actions pinned to SHAs, `contents: read`
+  permission. **Still missing**: `cargo-deny` license checks, wasm/no_std
+  builds.
 - **Release** (`.github/workflows/release.yml`): on `v*` tag, creates a
   GitHub release with CHANGELOG body. **`cargo publish` to crates.io is
-  not automated** (last publish was manual: 0.2.2 on 2026-08-06).
-- **Changelog**: Keep a Changelog format, all 3 releases documented,
-  including the 0.2.0 format break (`version || nonce || ciphertext`).
-- **History**: 23 commits, conventional-ish messages, clean tree.
+  still manual** (0.4.0 published 2026-09-12).
+- **Changelog**: Keep a Changelog format, all 7 releases documented,
+  including the 0.2.0 format break and the 0.3.0 / 0.4.0 breaking changes.
+- **History**: 46 commits, conventional-ish messages, clean tree.
   Renamed twice (`encrypted-settings` → `encrypt-man` → `encryptman`).
 
-### Ecosystem position (researched 2026-08-14, via crates.io API)
+### Ecosystem position (researched 2026-09-26, via crates.io API)
 
 | Crate | Downloads | What it is | Relationship to encryptman |
 |-------|-----------|------------|---------------------------|
-| `aes-gcm` (RustCrypto) | 136M | The low-level AEAD primitive | encryptman wraps it; competing is pointless, composing is the point |
-| `age` | 3.4M | File encryption (streaming, key/passphrase based) | Different niche; encryptman must not become a bad `age` |
-| `magic-crypt` | 796K | AES-**CBC**, unauthenticated, cross-language | The footgun encryptman positions against: CBC with no MAC cannot detect tampering |
-| `keyring` | 20M | OS keychain access | Complementary; encryptman says "store the master key in the keychain" and means *this crate* |
-| `secrets` | 81K | Protected-access memory | Complementary; encryptman zeroizes, `secrets` mprotects |
-| `cryptify` | 427K | Rust code obfuscator (name collision) | Unrelated; noted so nobody confuses the two |
+| `aes-gcm` (RustCrypto) | 163M | The low-level AEAD primitive | encryptman wraps it; competing is pointless, composing is the point |
+| `age` | 5.4M | File encryption (streaming, key/passphrase based) | Different niche; encryptman must not become a bad `age` |
+| `magic-crypt` | 850K | AES-**CBC**, unauthenticated, cross-language | The footgun encryptman positions against: CBC with no MAC cannot detect tampering |
+| `keyring` | 27M | OS keychain access | Complementary; encryptman says "store the master key in the keychain" and means *this crate* |
+| `secrets` | 88K | Protected-access memory | Complementary; encryptman zeroizes, `secrets` mprotects |
+| `cryptify` | 661K | Rust code obfuscator (name collision) | Unrelated; noted so nobody confuses the two |
 
 The honest read: the niche "encrypt small config values safely" is served
 mostly by `magic-crypt` (popular but unauthenticated) and by people
@@ -183,10 +194,14 @@ trust that a 2 KB niche deserves.
 
 ---
 
-## Gaps found while reading the repo (these shape the phases below)
+## Gaps found in the 2026-08-14 audit (these shaped the phases below)
 
 Not every gap is a bug. Some are hardening, some are proof, some are
-ecosystem citizenship. All are real, and all were verified.
+ecosystem citizenship. All were real, and all were verified at the time.
+
+**Status as of 0.4.0:** gaps 1-7, 9-12, and 19 were resolved by Phases 1-3
+(0.3.0 / 0.3.1 / 0.4.0). The open gaps are 8, 13-18, and 20 -- those are
+what Phases 4-6 exist to close.
 
 1. **`MasterKey::generate()` and nonce generation panic on RNG failure.**
    `getrandom::fill(&mut key).expect("failed to generate random bytes")`
@@ -332,7 +347,7 @@ The four findings that matter *right now*: panicking RNG paths, key
 material left in RAM (source Vec, derived keys), a dead dependency, and
 an unenforced `unsafe` guarantee.
 
-**Status: COMPLETE -- ships in 0.3.0 (tag + publish pending)**
+**Status: COMPLETE -- shipped in 0.3.0 (published 2026-08-14)**
 
 - [x] **No-panic API.** `MasterKey::generate()` and `generate_master_key()`
   return `Result<MasterKey, CryptoError>` (new `RandomnessFailed`
@@ -381,7 +396,7 @@ breaking API change.
 Roundtrips are the *minimum* bar. This phase pins the crate to published
 standards and hostile inputs.
 
-**Status: COMPLETE -- ships in 0.3.1 (non-breaking; no API changes)**
+**Status: COMPLETE -- shipped in 0.3.1 (published 2026-08-25; non-breaking, no API changes)**
 
 ### Known-answer tests (KATs)
 
@@ -454,8 +469,8 @@ findings; Miri job green; MSRV job green; all of it is part of
 
 ## Phase 3: API completion -- AAD, rotation, ergonomics
 
-**Status: COMPLETE -- ships in 0.4.0 (one intentional break: the new
-`CryptoError::InvalidEncoding` variant)**
+**Status: COMPLETE -- shipped in 0.4.0 (published 2026-09-12; one
+intentional break: the new `CryptoError::InvalidEncoding` variant)**
 
 - [x] **AAD support.** `encrypt_with_aad` / `decrypt_with_aad` plus
   `encrypt_bytes_with_aad` / `decrypt_bytes_with_aad` bind a ciphertext
@@ -750,7 +765,7 @@ importance:
 5. **Ruthless minimalism.** One dead dependency was already found and
    removed in this roadmap (Phase 1). Every future dependency must
    pass the same test.
-6. **A real audience served.** The niche exists: `magic-crypt`'s 796K
+6. **A real audience served.** The niche exists: `magic-crypt`'s 850K
    downloads buy unauthenticated AES-CBC. encryptman's honest pitch --
    "authenticated, context-separated, zeroizing, versioned settings
    encryption" -- only becomes true *as this roadmap is executed*,
