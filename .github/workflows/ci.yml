@@ -137,7 +137,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # 1.85.0
         with:
-          toolchain: 1.85.0
+          toolchain: 1.99.1
       - run: cargo test --all-features
 
   miri:
